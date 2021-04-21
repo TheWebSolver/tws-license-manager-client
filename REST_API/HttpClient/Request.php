@@ -1,14 +1,26 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver REST API HTTP Client Request.
+ * The Web Solver Licence Manager Client Request.
  *
- * @package  TheWebSolver\Core\REST_API
+ * @package TheWebSolver\License_Manager\Client
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\Core\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
 /**
- * REST API HTTP Client Request class.
+ * The Web Solver Licence Manager Client Request class.
  *
  * @package Automattic/WooCommerce
  */

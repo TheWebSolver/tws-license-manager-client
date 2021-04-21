@@ -1,14 +1,26 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver REST API Basic Authentication.
+ * The Web Solver Licence Manager Client Basic Authentication for SSL sites.
  *
- * @package  TheWebSolver\Core\REST_API
+ * @package TheWebSolver\License_Manager\Client
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\Core\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
 /**
- * Basic Authentication class.
+ * The Web Solver Licence Manager Client Basic Authentication class.
  */
 class BasicAuth {
 	/**

@@ -1,18 +1,28 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver REST API HTTP Client.
+ * The Web Solver Licence Manager Client HTTP Client.
  *
- * @package  TheWebSolver\Core\REST_API
+ * @package TheWebSolver\License_Manager\Client
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\Core\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
-use TheWebSolver\Core\REST_API\Client;
+use TheWebSolver\License_Manager\REST_API\Client;
 
 /**
- * REST API HTTP Client class.
- *
- * @package Automattic/WooCommerce
+ * The Web Solver Licence Manager Client HTTP Client class.
  */
 class Http_Client {
 	/**
@@ -149,6 +159,7 @@ class Http_Client {
 				$this->options->is_query_string_auth(),
 				$parameters
 			);
+			$this->auth = $basic_auth;
 			$parameters = $basic_auth->get_parameters();
 		} else {
 			$o_auth     = new OAuth(
@@ -160,6 +171,7 @@ class Http_Client {
 				$parameters,
 				$this->options->oauth_timestamp()
 			);
+			$this->auth = $o_auth;
 			$parameters = $o_auth->get_parameters();
 		}
 
@@ -175,7 +187,7 @@ class Http_Client {
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt
 		if ( 'POST' === $method ) {
 			\curl_setopt( $this->ch, CURLOPT_POST, true );
-		} elseif ( \in_array( $method, array( 'PUT', 'DELETE', 'OPTIONS' ), true ) ) {
+		} elseif ( \in_array( $method, array( 'PUT', 'DELETE', 'OPTIONS' ) ) ) { //phpcs:ignore WordPress.PHP.StrictInArray.MissingTrueStrict
 			\curl_setopt( $this->ch, CURLOPT_CUSTOMREQUEST, $method );
 		}
 		// phpcs:enable WordPress.WP.AlternativeFunctions.curl_curl_setopt
@@ -283,7 +295,7 @@ class Http_Client {
 
 		// Get response data.
 		$body    = \curl_exec( $this->ch ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_exec
-		$code    = \curl_getinfo( $this->ch, CURLINFO_HTTP_CODE ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_getinfo
+		$code    = \curl_getinfo( $this->ch, CURLINFO_RESPONSE_CODE ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_getinfo
 		$headers = $this->get_response_headers();
 
 		// Register response.
@@ -301,7 +313,7 @@ class Http_Client {
 		$follow_redirects = $this->options->get_follow_redirect();
 
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt
-		\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYPEER, $verify_ssl );
+		\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYPEER, false );
 		if ( ! $verify_ssl ) {
 			\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYHOST, $verify_ssl );
 		}
@@ -325,7 +337,7 @@ class Http_Client {
 	 */
 	protected function look_for_errors( $parsed_response ) {
 		// Any non-200/201/202 response code indicates an error.
-		if ( ! \in_array( $this->response->get_code(), array( '200', '201', '202' ), true ) ) {
+		if ( ! \in_array( $this->response->get_code(), array( '200', '201', '202' ) ) ) { //phpcs:ignore WordPress.PHP.StrictInArray.MissingTrueStrict
 			$errors        = isset( $parsed_response->errors ) ? $parsed_response->errors : $parsed_response;
 			$error_message = '';
 			$error_code    = '';

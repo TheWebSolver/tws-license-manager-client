@@ -1,20 +1,32 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver REST API HTTP Client Options.
+ * The Web Solver Licence Manager Client Options.
  *
- * @package  TheWebSolver\Core\REST_API
+ * @package TheWebSolver\License_Manager\Client
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\Core\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
 /**
- * REST API HTTP Client Options class.
+ * The Web Solver Licence Manager Client Options class.
  */
 class Options {
 	/**
 	 * Default License Manager REST API version.
 	 */
-	const VERSION = 'lmfwc/v2';
+	const VERSION = 'v2';
 
 	/**
 	 * Default request timeout.
@@ -31,7 +43,7 @@ class Options {
 	 * Default User Agent.
 	 * No version number.
 	 */
-	const USER_AGENT = 'TheWebSolver API Client-PHP';
+	const USER_AGENT = 'TheWebSolver License Manager API Client-PHP';
 
 	/**
 	 * Options.
@@ -61,10 +73,10 @@ class Options {
 	/**
 	 * Check if need to verify SSL.
 	 *
-	 * @return bool
+	 * @return int
 	 */
 	public function verify_ssl() {
-		return isset( $this->options['verify_ssl'] ) ? (bool) $this->options['verify_ssl'] : true;
+		return isset( $this->options['verify_ssl'] ) ? (int) $this->options['verify_ssl'] : 2;
 	}
 
 	/**

@@ -1,14 +1,26 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver REST API HTTP Client Exception.
+ * The Web Solver Licence Manager Client Exception.
  *
- * @package  TheWebSolver\Core\REST_API
+ * @package TheWebSolver\License_Manager\Client
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\Core\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
 /**
- * REST API HTTP Client Exception class.
+ * The Web Solver Licence Manager Client Exception class.
  */
 class Http_Client_Exception extends \Exception {
 	/**

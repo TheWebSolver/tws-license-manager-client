@@ -1,14 +1,26 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver REST API O_Authentication.
+ * The Web Solver Licence Manager Client OAuth Authentication for non-SSL sites.
  *
- * @package  TheWebSolver\Core\REST_API
+ * @package TheWebSolver\License_Manager\Client
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\Core\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
 /**
- * The oAuth1.0 class.
+ * The Web Solver Licence Manager Client OAuth Authentication class.
  */
 class OAuth {
 	/**
@@ -68,7 +80,7 @@ class OAuth {
 	/**
 	 * Initialize oAuth class.
 	 *
-	 * @param string $url             Store URL.
+	 * @param string $url             API endpoint URL.
 	 * @param string $consumer_key    Consumer key.
 	 * @param string $consumer_secret Consumer Secret.
 	 * @param string $api_version     API version.
@@ -155,14 +167,7 @@ class OAuth {
 	 * @return string
 	 */
 	protected function get_secret() {
-		$secret = $this->consumer_secret;
-
-		// Fix secret for v3 or later.
-		if ( ! \in_array( $this->api_version, array( 'v1', 'v2' ), true ) ) {
-			$secret .= '&';
-		}
-
-		return $secret;
+		return $this->consumer_secret . '&';
 	}
 
 	/**
@@ -244,7 +249,8 @@ class OAuth {
 		$parameters = \array_merge(
 			$this->parameters,
 			array(
-				'oauth_consumer_key'     => $this->consumer_key,
+				'consumer_key'           => $this->consumer_key,
+				'consumer_secret'        => $this->consumer_secret,
 				'oauth_timestamp'        => $this->timestamp,
 				'oauth_nonce'            => \sha1( \microtime() ),
 				'oauth_signature_method' => 'HMAC-' . self::HASH_ALGORITHM,
