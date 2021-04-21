@@ -17,7 +17,7 @@
 	],
 	"autoload": {
 		"psr-4": {
-			"TheWebSolver\\Core\\REST_API": [
+			"TheWebSolver\\Core\\REST_API\\": [
 				"HttpClient"
 			]
 		}
