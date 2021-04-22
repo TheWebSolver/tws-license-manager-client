@@ -21,8 +21,6 @@ namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
 /**
  * The Web Solver Licence Manager Client Request class.
- *
- * @package Automattic/WooCommerce
  */
 class Request {
 	/**

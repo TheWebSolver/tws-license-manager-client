@@ -79,7 +79,7 @@ class Client {
 	 * @param string $endpoint   API endpoint.
 	 * @param array  $parameters Request parameters.
 	 *
-	 * @return \stdClass
+	 * @return \stdClass|\WP_Error
 	 */
 	public function get( $endpoint, $parameters = array() ) {
 		return $this->http->request( $endpoint, 'GET', array(), $parameters );

@@ -37,7 +37,7 @@ class Options {
 	 * Default WP API prefix.
 	 * Including leading and trailing slashes.
 	 */
-	const WP_API_PREFIX = '/wp-json/';
+	const WP_API_PREFIX = '/wp-json/lmfwc/';
 
 	/**
 	 * Default User Agent.
@@ -96,15 +96,6 @@ class Options {
 	 */
 	public function is_query_string_auth() {
 		return isset( $this->options['query_string_auth'] ) ? (bool) $this->options['query_string_auth'] : false;
-	}
-
-	/**
-	 * Check if is WP REST API.
-	 *
-	 * @return bool
-	 */
-	public function is_wp_api() {
-		return isset( $this->options['wp_api'] ) ? (bool) $this->options['wp_api'] : true;
 	}
 
 	/**

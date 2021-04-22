@@ -82,50 +82,71 @@ class Http_Client {
 	private $response_headers;
 
 	/**
-	 * Initialize HTTP client.
+	 * Error handler.
 	 *
-	 * @param string $url            Store URL.
+	 * @var \WP_Error
+	 */
+	private $error;
+
+	/**
+	 * Initializes HTTP client.
+	 *
+	 * @param string $url             Store URL.
 	 * @param string $consumer_key    Consumer key.
 	 * @param string $consumer_secret Consumer Secret.
-	 * @param array  $options        Client options.
-	 *
-	 * @throws Http_Client_Exception REST API HTTP Client Exceptions.
+	 * @param array  $options         Client options.
 	 */
 	public function __construct( $url, $consumer_key, $consumer_secret, $options ) {
-		if ( ! \function_exists( 'curl_version' ) ) {
-			throw new Http_Client_Exception( 'cURL is NOT installed on this server', -1, new Request(), new Response() );
-		}
-
 		$this->options         = new Options( $options );
 		$this->url             = $this->build_api_url( $url );
 		$this->consumer_key    = $consumer_key;
 		$this->consumer_secret = $consumer_secret;
+		$this->error           = new \WP_Error();
+
+		if ( ! \function_exists( 'curl_version' ) ) {
+			$this->add_error(
+				'cURL_not_installed',
+				__( 'cURL is not installed on this server. Please install it for activating license.', 'tws-license-manager-client' )
+			);
+		}
 	}
 
 	/**
-	 * Check if is under SSL.
+	 * Sets error data.
+	 *
+	 * @param string $code    Error code.
+	 * @param string $message Error message.
+	 * @param mixed  $data    Optional. Error data.
+	 */
+	public function add_error( $code, $message, $data = '' ) {
+		$this->error->add( $code, $message, $data );
+	}
+
+	/**
+	 * Checks if site has SSL installed.
 	 *
 	 * @return bool
 	 */
-	protected function is_ssl() {
+	public function is_ssl() {
 		return 'https://' === \substr( $this->url, 0, 8 );
 	}
 
 	/**
-	 * Build API URL.
+	 * Builds REST API URL.
 	 *
 	 * @param string $url Store URL.
 	 *
 	 * @return string
 	 */
 	protected function build_api_url( $url ) {
-		$api = $this->options->is_wp_api() ? $this->options->api_prefix() : '/wc-api/';
+		$api = $this->options->api_prefix();
+		$ver = $this->options->get_version();
 
-		return \rtrim( $url, '/' ) . $api . $this->options->get_version() . '/';
+		return \rtrim( $url, '/' ) . $api . $ver . '/';
 	}
 
 	/**
-	 * Build URL.
+	 * Builds remote URL for querying with parameters.
 	 *
 	 * @param string $url        URL.
 	 * @param array  $parameters Query string parameters.
@@ -141,7 +162,7 @@ class Http_Client {
 	}
 
 	/**
-	 * Authenticate.
+	 * Sets authentication method based on site's SSL installed status.
 	 *
 	 * @param string $url        Request URL.
 	 * @param string $method     Request method.
@@ -150,36 +171,28 @@ class Http_Client {
 	 * @return array
 	 */
 	protected function authenticate( $url, $method, $parameters = array() ) {
-		// Setup authentication.
 		if ( $this->is_ssl() ) {
-			$basic_auth = new BasicAuth(
-				$this->ch,
-				$this->consumer_key,
-				$this->consumer_secret,
-				$this->options->is_query_string_auth(),
-				$parameters
-			);
-			$this->auth = $basic_auth;
+			$basic_auth = new BasicAuth( $this, $parameters );
 			$parameters = $basic_auth->get_parameters();
-		} else {
-			$o_auth     = new OAuth(
-				$url,
-				$this->consumer_key,
-				$this->consumer_secret,
-				$this->options->get_version(),
-				$method,
-				$parameters,
-				$this->options->oauth_timestamp()
-			);
-			$this->auth = $o_auth;
-			$parameters = $o_auth->get_parameters();
+
+			return $parameters;
 		}
 
-		return $parameters;
+		$o_auth = new OAuth(
+			$url,
+			$this->consumer_key,
+			$this->consumer_secret,
+			$this->options->get_version(),
+			$method,
+			$parameters,
+			$this->options->oauth_timestamp()
+		);
+
+		return $o_auth->get_parameters();
 	}
 
 	/**
-	 * Setup method.
+	 * Sets request method.
 	 *
 	 * @param string $method Request method.
 	 */
@@ -187,20 +200,20 @@ class Http_Client {
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt
 		if ( 'POST' === $method ) {
 			\curl_setopt( $this->ch, CURLOPT_POST, true );
-		} elseif ( \in_array( $method, array( 'PUT', 'DELETE', 'OPTIONS' ) ) ) { //phpcs:ignore WordPress.PHP.StrictInArray.MissingTrueStrict
+		} elseif ( \in_array( $method, array( 'PUT', 'DELETE', 'OPTIONS' ), true ) ) {
 			\curl_setopt( $this->ch, CURLOPT_CUSTOMREQUEST, $method );
 		}
 		// phpcs:enable WordPress.WP.AlternativeFunctions.curl_curl_setopt
 	}
 
 	/**
-	 * Get request headers.
+	 * Creates request headers.
 	 *
-	 * @param bool $send_data If request send data or not.
+	 * @param bool $send_data If request send data or not. Usually for `POST` method.
 	 *
 	 * @return array
 	 */
-	protected function get_request_headers( $send_data = false ) {
+	protected function create_request_headers( $send_data = false ) {
 		$headers = array(
 			'Accept'     => 'application/json',
 			'User-Agent' => $this->options->user_agent() . '/' . Client::VERSION,
@@ -214,11 +227,11 @@ class Http_Client {
 	}
 
 	/**
-	 * Create request.
+	 * Creates request data for the remote server.
 	 *
 	 * @param string $endpoint   Request endpoint.
 	 * @param string $method     Request method.
-	 * @param array  $data       Request data.
+	 * @param array  $data       Request data. Usually for `POST` method.
 	 * @param array  $parameters Request parameters.
 	 *
 	 * @return Request
@@ -228,15 +241,13 @@ class Http_Client {
 		$url      = $this->url . $endpoint;
 		$has_data = ! empty( $data );
 
-		// Setup authentication.
 		$parameters = $this->authenticate( $url, $method, $parameters );
 
-		// Setup method.
 		$this->setup_method( $method );
 
 		// Include post fields.
 		if ( $has_data ) {
-			$body = \json_encode( $data ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode
+			$body = \wp_json_encode( $data );
 			\curl_setopt( $this->ch, CURLOPT_POSTFIELDS, $body ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
 		}
 
@@ -244,15 +255,15 @@ class Http_Client {
 			$this->build_url_query( $url, $parameters ),
 			$method,
 			$parameters,
-			$this->get_request_headers( $has_data ),
+			$this->create_request_headers( $has_data ),
 			$body
 		);
 
-		return $this->get_request();
+		return $this->request;
 	}
 
 	/**
-	 * Get response headers.
+	 * Converts remote server response headers to an array.
 	 *
 	 * @return array
 	 */
@@ -276,12 +287,11 @@ class Http_Client {
 	}
 
 	/**
-	 * Create response.
+	 * Creates response.
 	 *
 	 * @return Response
 	 */
 	protected function create_response() {
-
 		// Set response headers.
 		$this->response_headers = '';
 		\curl_setopt( // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
@@ -305,18 +315,17 @@ class Http_Client {
 	}
 
 	/**
-	 * Set default cURL settings.
+	 * Sets default cURL settings.
 	 */
-	protected function set_default_curl_settings() {
+	protected function process_request() {
 		$verify_ssl       = $this->options->verify_ssl();
+		$verify_peer      = $this->is_ssl() ? 1 : false;
 		$timeout          = $this->options->get_timeout();
 		$follow_redirects = $this->options->get_follow_redirect();
 
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt
-		\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYPEER, false );
-		if ( ! $verify_ssl ) {
-			\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYHOST, $verify_ssl );
-		}
+		\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYPEER, $verify_peer );
+		\curl_setopt( $this->ch, CURLOPT_SSL_VERIFYHOST, $verify_ssl );
 		if ( $follow_redirects ) {
 			\curl_setopt( $this->ch, CURLOPT_FOLLOWLOCATION, true );
 		}
@@ -329,13 +338,13 @@ class Http_Client {
 	}
 
 	/**
-	 * Look for errors in the request.
+	 * Validates response data.
 	 *
 	 * @param object $parsed_response Parsed body response.
 	 *
-	 * @throws Http_Client_Exception REST API HTTP Client Exceptions.
+	 * @return object
 	 */
-	protected function look_for_errors( $parsed_response ) {
+	protected function validate_response( $parsed_response ) {
 		// Any non-200/201/202 response code indicates an error.
 		if ( ! \in_array( $this->response->get_code(), array( '200', '201', '202' ) ) ) { //phpcs:ignore WordPress.PHP.StrictInArray.MissingTrueStrict
 			$errors        = isset( $parsed_response->errors ) ? $parsed_response->errors : $parsed_response;
@@ -350,21 +359,23 @@ class Http_Client {
 				$error_code    = $errors->code;
 			}
 
-			throw new Http_Client_Exception(
-				\sprintf( 'Error: %s [%s]', $error_message, $error_code ),
-				$this->response->get_code(),
-				$this->request,
-				$this->response
+			$this->add_error(
+				$error_code,
+				sprintf( '%1$s: %2$s', __( 'Remote Server Error', 'tws-license-manager-client' ), $error_message ),
+				array(
+					'request'  => $this->request,
+					'response' => $this->response,
+				)
 			);
 		}
+
+		return $parsed_response;
 	}
 
 	/**
 	 * Process response.
 	 *
-	 * @return \stdClass
-	 *
-	 * @throws Http_Client_Exception REST API HTTP Client Exceptions.
+	 * @return \stdClass|\WP_Error Response as an object, WP_Error if not valid status code.
 	 */
 	protected function process_response() {
 		$body = $this->response->get_body();
@@ -377,23 +388,25 @@ class Http_Client {
 		$parsed_response = \json_decode( $body );
 
 		// Test if return a valid JSON.
-		if ( JSON_ERROR_NONE !== json_last_error() ) {
-			$message = function_exists( 'json_last_error_msg' ) ? json_last_error_msg() : 'Invalid JSON returned';
-			throw new Http_Client_Exception(
-				sprintf( 'JSON ERROR: %s', $message ),
-				$this->response->get_code(),
-				$this->request,
-				$this->response
+		if ( JSON_ERROR_NONE !== \json_last_error() ) {
+			$message = \function_exists( 'json_last_error_msg' ) ? \json_last_error_msg() : __( 'Response is an invalid JSON.', 'tws-license-manager-client' );
+			$this->add_error(
+				'invalid_json_response',
+				sprintf( 'JSON Error: %s', $message ),
+				array(
+					'request'  => $this->request,
+					'response' => $this->response,
+				)
 			);
 		}
 
-		$this->look_for_errors( $parsed_response );
+		$parsed_response = $this->validate_response( $parsed_response );
 
-		return $parsed_response;
+		return $this->has_error() ? $this->get_error() : $parsed_response;
 	}
 
 	/**
-	 * Make requests.
+	 * Makes remote server request.
 	 *
 	 * @param string $endpoint   Request endpoint.
 	 * @param string $method     Request method.
@@ -401,25 +414,32 @@ class Http_Client {
 	 * @param array  $parameters Request parameters.
 	 *
 	 * @return \stdClass
-	 *
-	 * @throws Http_Client_Exception REST API HTTP Client Exceptions.
 	 */
 	public function request( $endpoint, $method, $data = array(), $parameters = array() ) {
-		// Initialize cURL.
 		$this->ch = \curl_init(); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 
-		// Set request args.
 		$request = $this->create_request( $endpoint, $method, $data, $parameters );
 
-		// Default cURL settings.
-		$this->set_default_curl_settings();
+		$this->process_request();
 
-		// Get response.
 		$response = $this->create_response();
+		$err_code = \curl_errno( $this->ch ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_errno
 
 		// Check for cURL errors.
-		if ( \curl_errno( $this->ch ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_errno
-			throw new Http_Client_Exception( 'cURL Error: ' . \curl_error( $this->ch ), 0, $request, $response ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_error
+		if ( 0 < $err_code ) {
+			$this->add_error(
+				'cURL_error',
+				sprintf(
+					'%1$s. cURL Error Number: [%2$s]. cURL Error Message: [%3$s]',
+					__( 'An error occured when making remote server request', 'tws-license-manager-client' ),
+					$err_code,
+					\curl_error( $this->ch ) // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_error
+				),
+				array(
+					'request'  => $request,
+					'response' => $response,
+				)
+			);
 		}
 
 		\curl_close( $this->ch ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_close
@@ -428,7 +448,43 @@ class Http_Client {
 	}
 
 	/**
-	 * Get request data.
+	 * Gets cURL resource.
+	 *
+	 * @return resource
+	 */
+	public function get_resource() {
+		return $this->ch;
+	}
+
+	/**
+	 * Gets consumer key.
+	 *
+	 * @return string
+	 */
+	public function get_key() {
+		return $this->consumer_key;
+	}
+
+	/**
+	 * Gets consumer secret.
+	 *
+	 * @return string
+	 */
+	public function get_secret() {
+		return $this->consumer_secret;
+	}
+
+	/**
+	 * Gets options.
+	 *
+	 * @return Options
+	 */
+	public function get_option() {
+		return $this->options;
+	}
+
+	/**
+	 * Gets request data.
 	 *
 	 * @return Request
 	 */
@@ -437,11 +493,29 @@ class Http_Client {
 	}
 
 	/**
-	 * Get response data.
+	 * Gets response data.
 	 *
 	 * @return Response
 	 */
 	public function get_response() {
 		return $this->response;
+	}
+
+	/**
+	 * Gets error.
+	 *
+	 * @return \WP_Error
+	 */
+	public function get_error() {
+		return $this->error;
+	}
+
+	/**
+	 * Checks if error has occured.
+	 *
+	 * @return bool True if error found, false otherwise.
+	 */
+	public function has_error() {
+		return ! empty( $this->get_error()->errors );
 	}
 }

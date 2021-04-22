@@ -59,19 +59,24 @@ class BasicAuth {
 	protected $parameters;
 
 	/**
+	 * HTTP Client
+	 *
+	 * @var Http_Client
+	 */
+	protected $client;
+
+	/**
 	 * Initialize Basic Authentication class.
 	 *
-	 * @param resource $ch             cURL handle.
-	 * @param string   $consumer_key    Consumer key.
-	 * @param string   $consumer_secret Consumer Secret.
-	 * @param bool     $do_query        Do or not query string auth.
-	 * @param array    $parameters     Request parameters.
+	 * @param Http_Client $client     The HTTP Client making authentication.
+	 * @param array       $parameters Request parameters.
 	 */
-	public function __construct( $ch, $consumer_key, $consumer_secret, $do_query, $parameters = array() ) {
-		$this->ch              = $ch;
-		$this->consumer_key    = $consumer_key;
-		$this->consumer_secret = $consumer_secret;
-		$this->do_query        = $do_query;
+	public function __construct( $client, $parameters ) {
+		$this->client          = $client;
+		$this->ch              = $client->get_resource();
+		$this->consumer_key    = $client->get_key();
+		$this->consumer_secret = $client->get_secret();
+		$this->do_query        = $client->get_option()->is_query_string_auth();
 		$this->parameters      = $parameters;
 
 		$this->process_authentication();
@@ -95,6 +100,15 @@ class BasicAuth {
 	 * @return array
 	 */
 	public function get_parameters() {
+		// IF not a SSL site but SSL verification needed, pass error data to client.
+		if ( ! $this->client->is_ssl() && $this->client->get_option()->verify_ssl() ) {
+			$this->client->add_error(
+				'basicauth_ssl_not_installed',
+				__( 'SSL is not installed on this site for Basic Authentication.', 'tws-license-manager-client' ),
+				$this->parameters
+			);
+		}
+
 		return $this->parameters;
 	}
 }
