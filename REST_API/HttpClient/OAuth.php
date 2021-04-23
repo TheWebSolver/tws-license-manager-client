@@ -80,30 +80,17 @@ class OAuth {
 	/**
 	 * Initialize oAuth class.
 	 *
-	 * @param string $url             API endpoint URL.
-	 * @param string $consumer_key    Consumer key.
-	 * @param string $consumer_secret Consumer Secret.
-	 * @param string $api_version     API version.
-	 * @param string $method          Request method.
-	 * @param array  $parameters      Request parameters.
-	 * @param string $timestamp       Timestamp.
+	 * @param Http_Client $client     The HTTP Client making authentication.
+	 * @param array       $parameters Request parameters.
 	 */
-	public function __construct(
-		$url,
-		$consumer_key,
-		$consumer_secret,
-		$api_version,
-		$method,
-		$parameters = array(),
-		$timestamp = ''
-	) {
-		$this->url             = $url;
-		$this->consumer_key    = $consumer_key;
-		$this->consumer_secret = $consumer_secret;
-		$this->api_version     = $api_version;
-		$this->method          = $method;
+	public function __construct( $client, $parameters ) {
+		$this->url             = $client->get_url() . $client->get_endpoint();
+		$this->consumer_key    = $client->get_key();
+		$this->consumer_secret = $client->get_secret();
+		$this->api_version     = $client->get_option()->get_version();
+		$this->method          = $client->get_method();
 		$this->parameters      = $parameters;
-		$this->timestamp       = $timestamp;
+		$this->timestamp       = $client->get_option()->oauth_timestamp();
 	}
 
 	/**
@@ -143,25 +130,6 @@ class OAuth {
 	}
 
 	/**
-	 * Process filters.
-	 *
-	 * @param array $parameters Request parameters.
-	 *
-	 * @return array
-	 */
-	protected function process_filters( $parameters ) {
-		if ( isset( $parameters['filter'] ) ) {
-			$filters = $parameters['filter'];
-			unset( $parameters['filter'] );
-			foreach ( $filters as $filter => $value ) {
-				$parameters[ 'filter[' . $filter . ']' ] = $value;
-			}
-		}
-
-		return $parameters;
-	}
-
-	/**
 	 * Get secret.
 	 *
 	 * @return string
@@ -179,9 +147,6 @@ class OAuth {
 	 */
 	protected function generate_oauth_signature( $parameters ) {
 		$base_request_uri = \rawurlencode( $this->url );
-
-		// Extract filters.
-		$parameters = $this->process_filters( $parameters );
 
 		// Normalize parameter key/values and sort them.
 		$parameters = $this->normalize_parameters( $parameters );

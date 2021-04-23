@@ -88,6 +88,20 @@ class Http_Client {
 	 */
 	private $error;
 
+		/**
+		 * API endpoint.
+		 *
+		 * @var string
+		 */
+	private $endpoint;
+
+	/**
+	 * Request method.
+	 *
+	 * @var string
+	 */
+	private $method;
+
 	/**
 	 * Initializes HTTP client.
 	 *
@@ -164,31 +178,16 @@ class Http_Client {
 	/**
 	 * Sets authentication method based on site's SSL installed status.
 	 *
-	 * @param string $url        Request URL.
-	 * @param string $method     Request method.
-	 * @param array  $parameters Request parameters.
+	 * @param array $parameters Request parameters.
 	 *
 	 * @return array
 	 */
-	protected function authenticate( $url, $method, $parameters = array() ) {
-		if ( $this->is_ssl() ) {
-			$basic_auth = new BasicAuth( $this, $parameters );
-			$parameters = $basic_auth->get_parameters();
+	protected function authenticate( $parameters = array() ) {
+		$auth = $this->is_ssl()
+			? new BasicAuth( $this, $parameters )
+			: new OAuth( $this, $parameters );
 
-			return $parameters;
-		}
-
-		$o_auth = new OAuth(
-			$url,
-			$this->consumer_key,
-			$this->consumer_secret,
-			$this->options->get_version(),
-			$method,
-			$parameters,
-			$this->options->oauth_timestamp()
-		);
-
-		return $o_auth->get_parameters();
+		return $auth->get_parameters();
 	}
 
 	/**
@@ -197,6 +196,8 @@ class Http_Client {
 	 * @param string $method Request method.
 	 */
 	protected function setup_method( $method ) {
+		$this->method = $method;
+
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt
 		if ( 'POST' === $method ) {
 			\curl_setopt( $this->ch, CURLOPT_POST, true );
@@ -241,9 +242,10 @@ class Http_Client {
 		$url      = $this->url . $endpoint;
 		$has_data = ! empty( $data );
 
-		$parameters = $this->authenticate( $url, $method, $parameters );
-
 		$this->setup_method( $method );
+
+		$this->endpoint = $endpoint;
+		$parameters     = $this->authenticate( $parameters );
 
 		// Include post fields.
 		if ( $has_data ) {
@@ -363,8 +365,9 @@ class Http_Client {
 				$error_code,
 				sprintf( '%1$s: %2$s', __( 'Remote Server Error', 'tws-license-manager-client' ), $error_message ),
 				array(
-					'request'  => $this->request,
-					'response' => $this->response,
+					'request'        => $this->request,
+					'response'       => $this->response,
+					'response_error' => $errors,
 				)
 			);
 		}
@@ -481,6 +484,32 @@ class Http_Client {
 	 */
 	public function get_option() {
 		return $this->options;
+	}
+
+		/**
+		 * API url.
+		 *
+		 * @return string
+		 */
+	public function get_url() {
+		return $this->url;
+	}
+	/**
+	 * Gets API endpoint.
+	 *
+	 * @return string
+	 */
+	public function get_endpoint() {
+		return $this->endpoint;
+	}
+
+	/**
+	 * Gets request method.
+	 *
+	 * @return string
+	 */
+	public function get_method() {
+		return $this->method;
 	}
 
 	/**
