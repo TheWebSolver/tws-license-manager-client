@@ -26,7 +26,7 @@ class Options {
 	/**
 	 * Default License Manager REST API version.
 	 */
-	const VERSION = 'v2';
+	const VERSION = 'v1';
 
 	/**
 	 * Default request timeout.
@@ -37,7 +37,7 @@ class Options {
 	 * Default WP API prefix.
 	 * Including leading and trailing slashes.
 	 */
-	const WP_API_PREFIX = '/wp-json/lmfwc/';
+	const WP_API_PREFIX = '/wp-json/';
 
 	/**
 	 * Default User Agent.
@@ -105,6 +105,20 @@ class Options {
 	 */
 	public function api_prefix() {
 		return isset( $this->options['wp_api_prefix'] ) ? $this->options['wp_api_prefix'] : self::WP_API_PREFIX;
+	}
+
+	/**
+	 * Namespace for the API.
+	 *
+	 * @return string|\WP_Error
+	 */
+	public function namespace() {
+		return isset( $this->options['namespace'] )
+		? $this->options['namespace']
+		: new \WP_Error(
+			'rest_api_namespace_not_valid',
+			__( 'REST API namespace must be defined first.', 'tws-license-manager-client' ),
+		);
 	}
 
 	/**
