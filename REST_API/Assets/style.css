@@ -1,0 +1,73 @@
+/**
+ * License form styling.
+ *
+ * -----------------------------------
+ * DEVELOPED-MAINTAINED-SUPPPORTED BY
+ * -----------------------------------
+ * ███║     ███╗   ████████████████
+ * ███║     ███║   ═════════██████╗
+ * ███║     ███║        ╔══█████═╝
+ *  ████████████║      ╚═█████
+ * ███║═════███║      █████╗
+ * ███║     ███║    █████═╝
+ * ███║     ███║   ████████████████╗
+ * ╚═╝      ╚═╝    ═══════════════╝
+ */
+
+:root {
+	--primary-color: #009688;
+	--dark-gray: #808080;
+	--error: #ce0000;
+	--white: #fff;
+	--light: #eae9e9;
+}
+form {
+	max-width: 600px;
+	padding: 20px;
+	margin: auto;
+	background-color: var(--white);
+}
+#hz_activate_plugin {
+	display: flex;
+	flex-direction: column;
+}
+#hz_activate_plugin div {
+	margin-bottom: 30px;
+	margin-block-end: 30px;
+}
+#hz_activate_plugin p {
+	margin-bottom: 0;
+	margin-block-end: 0;
+}
+#hz_activate_plugin p.label {
+	color: var(--dark-gray);
+}
+#hz_activate_plugin p.field {
+	margin-top: 5px;
+	margin-block-start: 5px;
+}
+#hz_activate_plugin input {
+	width: 100%;
+	min-height: 50px;
+	border: 2px solid var(--light);
+	border-radius: 5px;
+}
+.error {
+	color: var(--error);
+	padding-left: 5px;
+	padding-inline-start: 5px;
+	margin-top: 3px;
+	margin-block-start: 3px;
+}
+
+.action_buttons {
+	margin-bottom: 1em;
+	margin-block-end: 1em;
+}
+.action_buttons input.hz_btn__prim {
+	width: 100%;
+	min-height: 50px;
+	border-radius: 50px;
+	font-size: 1.1em;
+	text-transform: uppercase;
+}
