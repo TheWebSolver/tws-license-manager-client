@@ -28,7 +28,7 @@ class Http_Client {
 	/**
 	 * The cURL handle.
 	 *
-	 * @var resource
+	 * @var resource|\CurlHandle
 	 */
 	protected $ch;
 
@@ -111,11 +111,18 @@ class Http_Client {
 	 * @param array  $options         Client options.
 	 */
 	public function __construct( $url, $consumer_key, $consumer_secret, $options ) {
-		$this->options         = new Options( $options );
+		$this->error   = new \WP_Error();
+		$this->options = new Options( $options );
+
+		// Stop further execution if REST API namespace not defined.
+		if ( \is_wp_error( $this->options->namespace() ) ) {
+			$this->error = $this->options->namespace();
+			return;
+		}
+
 		$this->url             = $this->build_api_url( $url );
 		$this->consumer_key    = $consumer_key;
 		$this->consumer_secret = $consumer_secret;
-		$this->error           = new \WP_Error();
 
 		if ( ! \function_exists( 'curl_version' ) ) {
 			$this->add_error(
@@ -153,10 +160,12 @@ class Http_Client {
 	 * @return string
 	 */
 	protected function build_api_url( $url ) {
-		$api = $this->options->api_prefix();
-		$ver = $this->options->get_version();
+		$api       = $this->options->api_prefix();
+		$url       = \trailingslashit( $url );
+		$namespace = \trailingslashit( $this->options->namespace() );
+		$ver       = \trailingslashit( $this->options->get_version() );
 
-		return \rtrim( $url, '/' ) . $api . $ver . '/';
+		return $url . $api . $namespace . $ver;
 	}
 
 	/**
