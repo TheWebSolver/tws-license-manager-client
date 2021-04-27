@@ -1,6 +1,6 @@
 <?php // phpcs:ignore WordPress.NamingConventions
 /**
- * The Web Solver Licence Manager Client.
+ * The Web Solver Licence Manager Client Manager.
  *
  * @package TheWebSolver\License_Manager\Client
  *
@@ -22,11 +22,11 @@ namespace TheWebSolver\License_Manager\REST_API;
 use TheWebSolver\License_Manager\REST_API\HttpClient\Http_Client;
 
 /**
- * The Web Solver Licence Manager Client class.
+ * The Web Solver Licence Manager Client Manager class.
  */
-class Client {
+class Manager {
 	/**
-	 * WooCommerce REST API Client version.
+	 * WooCommerce REST API Client Manager version.
 	 */
 	const VERSION = '1.0.0';
 
