@@ -20,7 +20,6 @@
 namespace TheWebSolver\License_Manager\REST_API;
 
 use TheWebSolver\License_Manager\REST_API\HttpClient\Http_Client;
-use WP_Error;
 
 /**
  * The Web Solver Licence Manager Client class.
@@ -64,7 +63,7 @@ class Client {
 	 *
 	 * @var string
 	 */
-	private $license;
+	private $license = '';
 
 	/**
 	 * WooCommerce Product Name set on client site for this plugin.
@@ -151,6 +150,20 @@ class Client {
 	public $is_active = false;
 
 	/**
+	 * The license page slug.
+	 *
+	 * @var string
+	 */
+	public $page_slug;
+
+	/**
+	 * Which step the page content to be shown.
+	 *
+	 * @var step
+	 */
+	public $step = '';
+
+	/**
 	 * Sets client plugin directory, main file name and parent menu to hook license form submenu page.
 	 *
 	 * @param string $dirname   Required. The client plugin directory name. This will be used as prefixer.
@@ -165,9 +178,11 @@ class Client {
 		$this->filename    = '' === $filename ? $dirname . '.php' : $filename;
 		$this->parent_slug = $parent_slug;
 		$this->option      = $dirname . '-license-data';
+		$this->page_slug   = 'tws-activate-' . $dirname;
 
 		if ( '' !== $parent_slug && is_string( $parent_slug ) ) {
 			add_action( 'admin_menu', array( $this, 'add_license_page' ), 999 );
+			add_action( 'admin_init', array( $this, 'start' ), 99 );
 		}
 	}
 
@@ -189,10 +204,11 @@ class Client {
 	/**
 	 * Sets API additional validation data.
 	 *
-	 * @param array $data The data can be of following types.
+	 * @param array $data The data can be of following types with their respective errors.
+	 * * @type `string `license_key` The generated license key for this plugin.
 	 * * @type `string` `email`    The customer email address (email that is used to purchase this plugin).
 	 * * @type `int`    `order_id` The order ID (order ID for which license is generated).
-	 * * @type `string` `name`     The product name (this plugin woocommerce product title).
+	 * * @type `string` `name`     The product name (this plugin woocommerce product title on server site).
 	 *
 	 * @return Client
 	 *
@@ -201,9 +217,16 @@ class Client {
 	 * // Check license key, email address, order_id, purchased product/plugin name for validation and their error message for client side.
 	 * Client::set_validation(
 	 *  array(
+	 *   // End user must input license key in form field. Validation on client site also if field is blank.
 	 *   'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
-	 *   'email'       => __( 'Enter valid email address registered when purchasing the plugin.', 'tws-license-manager-client' ),
-	 *   'order_id'    => __( 'Enter valid order ID when purchasing this plugin.', 'tws-license-manager-client' ),
+	 *
+	 *   // Email field will be generated and user must input email registered on server site and same was used to purchase the plugin. Validation on client site also if field is blank.
+	 *   'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
+	 *
+	 *   // Order ID field will be generated and user must input the Order ID for which license key was generated. Validation on client site also if field is blank.
+	 *   'order_id'    => __( 'Enter same/valid purchase order ID.', 'tws-license-manager-client' ),
+	 *
+	 *   // Hidden input field will be created. Validation only on server site.
 	 *   'name'        => '', // empty as this should be passed as parameter like this -> Client::set_product_name('My Client Plugin'). So no errors on client side.
 	 *  )
 	 * );
@@ -237,6 +260,23 @@ class Client {
 	/**
 	 * Sets REST API endpoint.
 	 *
+	 * __________
+	 * NOTE: Always disable endpoints that are not being used from ***License Manager->settings->Enable/Disable API Routes***.
+	 * _________
+	 *
+	 * The available endpoints are (without version):
+	 * * `GET`  - _licenses_
+	 * * `GET`  - _licenses/{license_key}_
+	 * * `POST` - _licenses_
+	 * * `PUT`  - _licenses/{license_key}_
+	 * * `GET`  - _licenses/activate/{license_key}_
+	 * * `GET`  - _licenses/deactivate/{license_key}_
+	 * * `GET`  - _licenses/validate/{license_key}_
+	 * * `GET`  - _generators_
+	 * * `GET`  - _generators/{id}_
+	 * * `POST` - _generators_
+	 * * `GET`  - _generators/{id}_
+	 *
 	 * @param string $endpoint The REST API Route endpoint.
 	 *
 	 * @return Client
@@ -253,13 +293,27 @@ class Client {
 	}
 
 	/**
+	 * Starts page.
+	 */
+	public function start() {
+		// Bail if not license page.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		if ( empty( $_GET['page'] ) || $this->page_slug !== $_GET['page'] ) {
+			return;
+		}
+
+		$this->step = isset( $_GET['step'] ) ? sanitize_key( wp_unslash( $_GET['step'] ) ) : '';
+		// phpcs:enable
+	}
+
+	/**
 	 * Sets license key.
 	 *
 	 * ____________
 	 * NOTE: This is an optional method used for validation purposes only.
 	 * ____________
 	 *
-	 * @param string $product_name The WooCommerce product name set for this plugin on server site that matches with the product when order was made. This will be used for validation on server when you pass `name` in {@see @method `Client::set_validation()`} array parameter.
+	 * @param string $product_name The WooCommerce product name set for this plugin on server site that matches with the product when order was made. This will be used for validation on server when `name` is passed in {@see @method `Client::set_validation()`} array parameter.
 	 *
 	 * @return Client
 	 */
@@ -323,21 +377,89 @@ class Client {
 	/**
 	 * REST API call with GET method.
 	 *
-	 * @param array $parameters Query parameters.
+	 * @param array $validate Whether validation should be done or not.
+	 *                        Validation works on the basis of data passed to
+	 *                        {@see @method Client::validate_with()}.
 	 *
-	 * @return \stdClass|WP_Error
+	 * @return \stdClass|\WP_Error
 	 */
-	public function get_call( $parameters = array() ) {
-		$license  = $this->license ? '/' . $this->license : '';
-		$endpoint = $this->endpoint . $license;
+	public function get_call( $validate = true ) {
+		$license    = $this->license ? '/' . $this->license : '';
+		$endpoint   = $this->endpoint . $license;
+		$parameters = $validate ? $this->parameters : array();
 
 		return $this->get( $endpoint, $parameters );
 	}
 
 	/**
-	 * Generates form for displaying on client site.
+	 * Activates the license.
+	 *
+	 * -----------------
+	 * Following updates happen on server:
+	 * * ***timesActivated*** will increase by the count of `1`.
+	 * * ***status*** will be changed to `ACTIVE (denoted by "3")`.
+	 * -----------------
+	 *
+	 * @param bool $validate Whether to pass parameters for server-side validation.
+	 * @param bool $form     Whether server request be made from activation forms only or not.
+	 *                       Highly recommended to set it to true for unnecessary API calls.
+	 *
+	 * @return \stdClass|\WP_Error
+	 */
+	public function activate_license( $validate = true, $form = false ) {
+		$this->prepare_response( $validate, 'activate', $form );
+
+		return $this->client->has_error() ? $this->client->get_error() : $this->get( $this->endpoint, $this->parameters );
+	}
+
+	/**
+	 * Prepare data to pass for getting response.
+	 *
+	 * @param bool   $validate Whether to pass parameters for server-side validation.
+	 * @param string $endpoint The API endpoint.
+	 * @param bool   $form     Request from activation forms only or not.
+	 */
+	private function prepare_response( $validate, $endpoint, $form ) {
+		// Prepare parameters.
+		$parameters = $validate ? $this->parameters : array();
+		// A required validation parameter so only form fields can be a valid server request.
+		$activation_form  = array( 'form_id' => \sha1( 'validate_licenses' ) );
+		$this->parameters = $form ? array_merge( $activation_form, $parameters ) : $parameters;
+
+		// Prepare license.
+		if ( '' === $this->license ) {
+			$this->client->add_error(
+				'license_key_not_valid',
+				__( 'License key was invalid or no license key was given.', 'tws-license-manager-client' )
+			);
+		}
+
+		// Prepare endpoint with license key.
+		$this->endpoint = 'licenses/' . $endpoint . '/' . $this->license;
+
+		// Prepare route.
+		$namespace   = $this->client->get_option()->namespace();
+		$version     = $this->client->get_option()->get_version();
+		$this->route = '/' . $namespace . '/' . $version . '/' . $this->endpoint . '/';
+	}
+
+	/**
+	 * Generates license page form by step name.
 	 */
 	public function generate_form() {
+		if ( empty( $this->step ) ) {
+			call_user_func( array( $this, 'show_license_form' ) );
+		} elseif ( 'deactivate' === $this->step ) {
+			call_user_func( array( $this, 'show_license_form' ), false );
+		}
+	}
+
+	/**
+	 * Generates form for displaying on client site.
+	 *
+	 * @param bool $to_activate License form to be shown on activation or deactivation page.
+	 */
+	protected function show_license_form( $to_activate = true ) {
 		$parameters  = get_option( $this->option, array() );
 		$license_key = isset( $parameters['license_key'] ) ? $parameters['license_key'] : '';
 		$email       = isset( $parameters['email'] ) ? $parameters['email'] : '';
@@ -345,11 +467,20 @@ class Client {
 
 		// Check status at this stage too so no early call ignored.
 		$this->is_active = ! empty( $parameters ) && isset( $parameters['success'] ) && $parameters['success'];
+
+		if ( $to_activate ) {
+			$btn_class = ' hz_lmac_btn';
+			$button    = $this->is_active ? __( 'Activated', 'tws-license-manager-client' ) : __( 'Activate Now', 'tws-license-manager-client' );
+		} else {
+			$this->is_active = false;
+			$btn_class       = ' hz_lmdac_btn';
+			$button          = __( 'Deactivate Now', 'tws-license-manager-client' );
+		}
 		?>
 			<form method="POST">
 				<?php
 					/**
-					 * WPHOOK: Action -> fires after default fields.
+					 * WPHOOK: Action -> fires before default fields.
 					 *
 					 * @param string[] $parameters The form field parameters.
 					 */
@@ -357,7 +488,7 @@ class Client {
 				?>
 
 				<?php
-				// phpcs:disable
+				// phpcs:disable Squiz.PHP.DisallowMultipleAssignments.Found
 				$error = $email_error = $order_error = '';
 				$class = $email_class = $order_class = '';
 				// phpcs:enable
@@ -434,12 +565,35 @@ class Client {
 				?>
 
 				<fieldset class="action_buttons"<?php echo $this->is_active ? ' disabled="disabled"' : ''; ?>>
-					<input type="submit" class="button-primary button button-large button-next hz_btn__prim" value="<?php esc_html_e( 'Activate', 'tws-license-manager-client' ); ?>" />
-					<?php wp_nonce_field( 'hzfex-validate-license-form' ); ?>
-					<input type="hidden" name="activate_license" value="activate_license">
+					<input type="submit" class="button-primary button button-large button-next hz_btn__prim<?php echo esc_attr( $btn_class ); ?>" value="<?php echo esc_html( $button ); ?>" />
+				</fieldset>
+				<?php if ( $to_activate ) : ?>
+					<fieldset class="deactivate_license">
+						<a href="<?php echo esc_url( $this->get_deactivation_page_link() ); ?>" class="button button-large button-next hz_btn__skip hz_btn__nav"><?php esc_html_e( 'Deactivate License', 'tws-license-manager-client' ); ?></a>
+					</fieldset>
+				<?php endif; ?>
+				<fieldset class="license_validation">
+					<?php
+					wp_nonce_field( 'hzfex-validate-license-form' );
+					/**
+					 * Without this hidden input field, save function call will not trigger.
+					 *
+					 * {@see @method Wizard::start()}
+					 */
+					?>
+					<input type="hidden" name="validate_license" value="validate_license">
 				</fieldset>
 			</form>
 		<?php
+	}
+
+	/**
+	 * Gets deactivation page link.
+	 *
+	 * @return string
+	 */
+	private function get_deactivation_page_link() {
+		return add_query_arg( 'step', 'deactivate' );
 	}
 
 	/**
@@ -457,49 +611,51 @@ class Client {
 		$data      = wp_unslash( $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$with_data = array( 1 );
 
-		// Internal check if we have activate license hidden field.
-		if ( isset( $data['activate_license'] ) && 'activate_license' === $data['activate_license'] ) {
-			if ( isset( $data[ $this->dirname ]['license_key'] ) ) {
-				$this->license = strtoupper( sanitize_key( $data[ $this->dirname ]['license_key'] ) );
+		// Internal check for validation field. If not found, request => invalid.
+		if ( ! isset( $data['validate_license'] ) || 'validate_license' !== $data['validate_license'] ) {
+			return false;
+		}
 
-				// Catch error for license key with no data for client side validation.
-				if (
-					empty( $data[ $this->dirname ]['license_key'] ) &&
-					isset( $this->validation_data['license_key'] )
-				) {
-					$this->errors['license_key'] = $this->validation_data['license_key'];
+		if ( isset( $data[ $this->dirname ]['license_key'] ) ) {
+			$this->license = strtoupper( sanitize_key( $data[ $this->dirname ]['license_key'] ) );
+
+			// Catch error for license key with no data for client side validation.
+			if (
+				empty( $data[ $this->dirname ]['license_key'] ) &&
+				isset( $this->validation_data['license_key'] )
+			) {
+				$this->errors['license_key'] = $this->validation_data['license_key'];
+			}
+		}
+
+		// Clear license key for setting parameters.
+		if ( isset( $this->validation_data['license_key'] ) ) {
+			unset( $this->validation_data['license_key'] );
+		}
+
+		// Iterate over validation fields and set properties.
+		foreach ( $this->validation_data as $key => $error ) {
+			if (
+				isset( $data[ $this->dirname ][ $key ] ) &&
+				'email' === $data[ $this->dirname ][ $key ]
+			) {
+				$this->parameters['email'] = sanitize_email( $data[ $this->dirname ][ $key ] );
+
+				// Catch error for email with no data for client side validation.
+				if ( empty( $data[ $this->dirname ]['email'] ) ) {
+					$this->errors['email'] = $error;
+					$with_data[]           = 0;
 				}
+				continue;
 			}
 
-			// Clear license key for setting parameters.
-			if ( isset( $this->validation_data['license_key'] ) ) {
-				unset( $this->validation_data['license_key'] );
-			}
+			if ( isset( $data[ $this->dirname ][ $key ] ) ) {
+				$this->parameters[ $key ] = $data[ $this->dirname ][ $key ];
 
-			// Iterate over validation fields and set properties.
-			foreach ( $this->validation_data as $key => $error ) {
-				if (
-					isset( $data[ $this->dirname ][ $key ] ) &&
-					'email' === $data[ $this->dirname ][ $key ]
-				) {
-					$this->parameters['email'] = sanitize_email( $data[ $this->dirname ][ $key ] );
-
-					// Catch error for email with no data for client side validation.
-					if ( empty( $data[ $this->dirname ]['email'] ) ) {
-						$this->errors['email'] = $error;
-						$with_data[]           = 0;
-					}
-					continue;
-				}
-
-				if ( isset( $data[ $this->dirname ][ $key ] ) ) {
-					$this->parameters[ $key ] = $data[ $this->dirname ][ $key ];
-
-					// Catch errors for other inputs with no data for client side validation.
-					if ( empty( $data[ $this->dirname ][ $key ] ) ) {
-						$this->errors[ $key ] = $error;
-						$with_data[]          = 0;
-					}
+				// Catch errors for other inputs with no data for client side validation.
+				if ( empty( $data[ $this->dirname ][ $key ] ) ) {
+					$this->errors[ $key ] = $error;
+					$with_data[]          = 0;
 				}
 			}
 		}
@@ -507,8 +663,8 @@ class Client {
 		// Prepare data to save to database.
 		$value = array_merge( array( 'license_key' => $this->license ), $this->parameters );
 
-		// Save form data to database if not activated before.
-		if ( $save && ! $this->is_active ) {
+		// Save form data to database if not activated before. REVIEW: update setting.
+		if ( $save ) {
 			update_option( $this->option, $value );
 		}
 
@@ -539,7 +695,7 @@ class Client {
 			__( 'Activate License', 'tws-license-manager-client' ),
 			__( 'Activate License', 'tws-license-manager-client' ),
 			'manage_options',
-			'activate-' . $this->dirname,
+			$this->page_slug,
 			array( $this, 'generate_form' )
 		);
 
