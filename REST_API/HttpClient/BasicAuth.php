@@ -26,7 +26,7 @@ class BasicAuth {
 	/**
 	 * The cURL handle.
 	 *
-	 * @var resource
+	 * @var resource|\CurlHandle
 	 */
 	protected $ch;
 
