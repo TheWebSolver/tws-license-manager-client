@@ -19,7 +19,7 @@
 
 namespace TheWebSolver\License_Manager\REST_API\HttpClient;
 
-use TheWebSolver\License_Manager\REST_API\Client;
+use TheWebSolver\License_Manager\REST_API\Manager;
 
 /**
  * The Web Solver Licence Manager Client HTTP Client class.
@@ -160,12 +160,11 @@ class Http_Client {
 	 * @return string
 	 */
 	protected function build_api_url( $url ) {
-		$api       = $this->options->api_prefix();
-		$url       = \trailingslashit( $url );
-		$namespace = \trailingslashit( $this->options->namespace() );
-		$ver       = \trailingslashit( $this->options->get_version() );
+		$api       = $this->options->api_prefix(); // must have leading and trailing slashes.
+		$namespace = $this->options->namespace();
+		$ver       = $this->options->get_version();
 
-		return $url . $api . $namespace . $ver;
+		return "{$url}{$api}{$namespace}/{$ver}/";
 	}
 
 	/**
@@ -226,7 +225,7 @@ class Http_Client {
 	protected function create_request_headers( $send_data = false ) {
 		$headers = array(
 			'Accept'     => 'application/json',
-			'User-Agent' => $this->options->user_agent() . '/' . Client::VERSION,
+			'User-Agent' => $this->options->user_agent() . '/' . Manager::VERSION,
 		);
 
 		if ( $send_data ) {
@@ -387,7 +386,7 @@ class Http_Client {
 	/**
 	 * Process response.
 	 *
-	 * @return \stdClass|\WP_Error Response as an object, WP_Error if not valid status code.
+	 * @return \stdClass|\WP_Error Response as an object if everything valid, WP_Error otherwise.
 	 */
 	protected function process_response() {
 		$body = $this->response->get_body();
@@ -423,9 +422,9 @@ class Http_Client {
 	 * @param string $endpoint   Request endpoint.
 	 * @param string $method     Request method.
 	 * @param array  $data       Request data.
-	 * @param array  $parameters Request parameters.
+	 * @param array  $parameters Request parameters. Includes form validation params.
 	 *
-	 * @return \stdClass
+	 * @return \stdClass|\WP_Error Response as an object if everything valid, WP_Error otherwise.
 	 */
 	public function request( $endpoint, $method, $data = array(), $parameters = array() ) {
 		$this->ch = \curl_init(); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
