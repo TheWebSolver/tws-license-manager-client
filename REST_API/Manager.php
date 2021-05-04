@@ -669,7 +669,7 @@ class Manager {
 			if ( 'deactivate' !== $this->step && 'active' === $this->get_license( 'status' ) ) {
 				$this->client->add_error(
 					'license_form_invalid_request',
-					__( 'The license for this site has already been activated.', 'tws-license-manager-client' ),
+					__( 'Oops! The license for this site has already been activated.', 'tws-license-manager-client' ),
 					array( 'status' => 400 )
 				);
 
@@ -680,7 +680,7 @@ class Manager {
 			if ( 'deactivate' === $this->step && 'active' !== $this->get_license( 'status' ) ) {
 				$this->client->add_error(
 					'license_form_invalid_request',
-					__( 'The license for this site is not active yet. Activate your license first.', 'tws-license-manager-client' ),
+					__( 'Oops! The license for this site is not active yet. Activate your license first.', 'tws-license-manager-client' ),
 					array( 'status' => 400 )
 				);
 
