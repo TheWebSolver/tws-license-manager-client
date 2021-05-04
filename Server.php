@@ -27,7 +27,7 @@
 namespace TheWebSolver\License_Manager\REST_API;
 
 use LicenseManagerForWooCommerce\Repositories\Resources\License as LicenseHandler;
-use \LicenseManagerForWooCommerce\Models\Resources\License;
+use LicenseManagerForWooCommerce\Models\Resources\License;
 
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
@@ -109,7 +109,7 @@ final class Manager {
 	 * Validates API on server.
 	 */
 	public function validate() {
-		add_filter( 'lmfwc_rest_api_validation', array( $this, 'validate_request' ), 10, 3 );
+		\add_filter( 'lmfwc_rest_api_validation', array( $this, 'validate_request' ), 10, 3 );
 	}
 
 	/**
@@ -120,10 +120,10 @@ final class Manager {
 	 */
 	public function update( $status = true, $data = array() ) {
 		$this->update_status   = $status;
-		$this->activation_data = is_array( $data ) ? $data : array( $data );
+		$this->activation_data = \is_array( $data ) ? $data : array( $data );
 
 		// Modify response and perform additional tasks.
-		add_filter( 'lmfwc_rest_api_pre_response', array( $this, 'parse_response' ), 10, 3 );
+		\add_filter( 'lmfwc_rest_api_pre_response', array( $this, 'parse_response' ), 10, 3 );
 	}
 
 	/**
@@ -141,14 +141,14 @@ final class Manager {
 	public function validate_request( $result, $server, $request ) {
 		$route      = $this->route;
 		$parameters = $request->get_params();
-		$valid_form = array_key_exists( 'form_state', $parameters );
+		$valid_form = \array_key_exists( 'form_state', $parameters );
 
 		// Get request headers for validation.
 		$authorize  = $request->get_header_as_array( 'authorization' )[0];
 		$from       = $request->get_header_as_array( 'from' );
-		$user_email = is_array( $from ) ? (string) $from[0] : '';
+		$user_email = \is_array( $from ) ? (string) $from[0] : '';
 		$client_url = $request->get_header_as_array( 'referer' )[0];
-		$authorize  = explode( ' ', $authorize );
+		$authorize  = \explode( ' ', $authorize );
 
 		// phpcs:disable -- Error code testing OK. Uncomment it to get requested data.
 		// return new \WP_Error(
@@ -190,7 +190,7 @@ final class Manager {
 			$route = "{$this->route}/{$parameters['form_state']}/";
 
 			// Client site license form route did not match, $request => WP_Error.
-			if ( strpos( $request->get_route(), $route ) !== 0 ) {
+			if ( \strpos( $request->get_route(), $route ) !== 0 ) {
 				$msg  = __( 'The request route did not match for further processing.', 'tws-license-manager-server' );
 				$data = array(
 					'request_route' => $request->get_route(),
@@ -203,7 +203,7 @@ final class Manager {
 		}
 
 		// Extract license key from the API path and get license object.
-		$endpoint = explode( $route, $request->get_route() );
+		$endpoint = \explode( $route, $request->get_route() );
 		$license  = ( isset( $endpoint[1] ) && ! empty( $endpoint[1] ) )
 		? \lmfwc_get_license( $endpoint[1] )
 		: false;
@@ -224,7 +224,7 @@ final class Manager {
 
 		$meta_key     = 'data-' . $this->parse_url( $client_url );
 		$metadata     = \lmfwc_get_license_meta( $license->getId(), $meta_key, true );
-		$metadata     = is_array( $metadata ) ? $metadata : array();
+		$metadata     = \is_array( $metadata ) ? $metadata : array();
 		$saved_email  = isset( $metadata['email'] ) ? $metadata['email'] : '';
 		$saved_url    = isset( $metadata['url'] ) ? $metadata['url'] : '';
 		$saved_status = isset( $metadata['status'] ) ? $metadata['status'] : '';
@@ -239,7 +239,7 @@ final class Manager {
 		if ( $user_email ) {
 			$active     = $active && ( $user_email === $saved_email );
 			$deactive   = $deactive && ( $user_email === $saved_email );
-			$parameters = array_merge( $parameters, array( 'email' => $user_email ) );
+			$parameters = \array_merge( $parameters, array( 'email' => $user_email ) );
 		}
 
 		// Client manager already implements whether license is already active/inactive.
@@ -270,8 +270,8 @@ final class Manager {
 		$metadata = array();
 
 		// Product name didn't match with WooCommerce Product Title, $request => WP_Error.
-		if ( array_key_exists( 'name', $parameters ) ) {
-			$product = wc_get_product( $license->getProductId() );
+		if ( \array_key_exists( 'name', $parameters ) ) {
+			$product = \wc_get_product( $license->getProductId() );
 			$msg     = isset( $this->validation_data['name'] )
 			? $this->validation_data['name']
 			: 'Product not found.';
@@ -287,8 +287,8 @@ final class Manager {
 		}
 
 		// Order ID didn't match with WooCommerce order ID, $request => WP_Error.
-		if ( array_key_exists( 'order_id', $parameters ) ) {
-			$order = wc_get_order( $license->getOrderId() );
+		if ( \array_key_exists( 'order_id', $parameters ) ) {
+			$order = \wc_get_order( $license->getOrderId() );
 			$msg   = isset( $this->validation_data['order_id'] )
 			? $this->validation_data['order_id']
 			: 'Order not found.';
@@ -297,15 +297,15 @@ final class Manager {
 
 			if (
 				! ( $order instanceof \WC_Order ) ||
-				absint( $parameters['order_id'] ) !== $order->get_id()
+				\absint( $parameters['order_id'] ) !== $order->get_id()
 			) {
 				return $error;
 			}
 		}
 
 		// Email address didn't match with WordPress user email, $request => WP_Error.
-		if ( array_key_exists( 'email', $parameters ) ) {
-			$user = get_userdata( $license->getUserId() );
+		if ( \array_key_exists( 'email', $parameters ) ) {
+			$user = \get_userdata( $license->getUserId() );
 			$msg  = isset( $this->validation_data['email'] )
 			? $this->validation_data['email']
 			: 'Email not found.';
@@ -331,7 +331,7 @@ final class Manager {
 		 * @param License $license    The license object.
 		 * @param array   $parameters The request parameters.
 		 */
-		do_action( 'hzfex_license_manager_server_request_validation', $license, $parameters );
+		\do_action( 'hzfex_license_manager_server_request_validation', $license, $parameters );
 
 		// Prepare meta key and value to save.
 		$transient       = \sha1( $license->getDecryptedLicenseKey() );
@@ -339,7 +339,7 @@ final class Manager {
 		$metadata['url'] = $client_url;
 
 		// Save metadata for 5 minutes to catch with response, then delete.
-		set_transient( $transient, $metadata, MINUTE_IN_SECONDS * 5 );
+		\set_transient( $transient, $metadata, MINUTE_IN_SECONDS * 5 );
 
 		return true;
 	}
@@ -366,7 +366,7 @@ final class Manager {
 
 		// Get all request parameters.
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		parse_str( wp_unslash( $_SERVER['QUERY_STRING'] ), $parameters );
+		\parse_str( \wp_unslash( $_SERVER['QUERY_STRING'] ), $parameters );
 
 		// Get activate/deactivate form state.
 		$form_state = isset( $parameters['form_state'] ) ? (string) $parameters['form_state'] : '';
@@ -389,8 +389,8 @@ final class Manager {
 		$license_key = $data['licenseKey'];
 		$license     = \lmfwc_get_license( $license_key );
 		$transient   = \sha1( $license->getDecryptedLicenseKey() );
-		$metadata    = get_transient( $transient );
-		$meta_key    = is_array( $metadata ) && isset( $metadata['key'] ) ? (string) $metadata['key'] : '';
+		$metadata    = \get_transient( $transient );
+		$meta_key    = \is_array( $metadata ) && isset( $metadata['key'] ) ? (string) $metadata['key'] : '';
 
 		// Clear meta key from metadata.
 		unset( $metadata['key'] );
@@ -427,7 +427,7 @@ final class Manager {
 			}
 
 			// Clear transient.
-			delete_transient( $transient );
+			\delete_transient( $transient );
 		}
 
 		// Send email address as response data, if set.
@@ -478,6 +478,6 @@ final class Manager {
 		$domain = \wp_parse_url( $domain, PHP_URL_HOST );
 		$domain = \ltrim( $domain, 'www.' );
 
-		return sanitize_key( $domain );
+		return \sanitize_key( $domain );
 	}
 }
