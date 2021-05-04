@@ -1,10 +1,13 @@
 ## License Manager Client Handler example codes:
+
 For debugging purpose, set the debug constant on `wp-config.php`.
+
 ```php
 define( 'TWS_LICENSE_MANAGER_CLIENT_DEBUG', true );
 ```
 
 Quick test codes (when debug constant is set to `true`):
+
 ```php
 function test_client_manager() {
 	// replace parameters with your own.
@@ -38,9 +41,10 @@ function test_client_manager() {
 }
 add_action( 'admin_notices', 'test_client_manager' );
 ```
-The above code will get data from server when you are on WordPress admin and debug mode set to `true`.
 
-Now lets create the actual codes for the selling plugin with license form to enter license key and other additional [validation fields set](#Validation).
+The above code will get data from the server when you are on WordPress admin and debug mode set to `true`.
+
+Now let's create the actual codes for the selling plugin with license form to enter the license key and other additional [validation fields set](#Validation).
 
 ```php
 use TheWebSolver\License_Manager\REST_API\Manager; // The client manager class.
@@ -66,10 +70,12 @@ class Client_Plugin_License_Handler {
 	}
 }
 ```
-Lets breakdown the above code in steps:
+
+Let's breakdown the above code into steps:
+
 - Create a class to handle license activation/deactivation.
 - Set constant `Client_Plugin_License_Handler::SERVER_URL` where [License Manager for WooCommerce](https://wordpress.org/plugins/license-manager-for-woocommerce/) plugin is installed and activated.
-- Set constant `Client_Plugin_License_Handler::PARENT_SLUG` where submenu page for the license activation/deactivation form will be added. This can be set as empty string if you want to handle submenu creation at different file of your plugin. Example for this at the [end](#submenu).
+- Set constant `Client_Plugin_License_Handler::PARENT_SLUG` where submenu page for the license activation/deactivation form will be added. This can be set as an empty string if you want to handle submenu creation at a different file of your plugin. Example for this at the [end](#submenu).
 
 ```php
 private function __construct() {
@@ -86,10 +92,12 @@ private function __construct() {
 	}
 }
 ```
-Lets breakdown the above code in steps:
-- Inside constructor, we require all license manager client files from composer autoload.
-- Set the property `Client_Plugin_License_Handler::$dirname` to the selling plugin folder name. This will used for WordPress hooks, creating slugs, creating license form, saving options, etc. In other words, dirname will be used as the ***prefix***.
-- Check if on admin interface and initialize manager class. It will handle everything on client site.
+
+Let's breakdown the above code into steps:
+
+- Inside the constructor, we require all license manager client files from composer autoload.
+- Set the property `Client_Plugin_License_Handler::$dirname` to the selling plugin folder name. This will be used for WordPress hooks, creating slugs, creating license forms, saving options, etc. In other words, dirname will be used as the **_prefix_**.
+- Check if on admin interface and initialize manager class. It will handle everything on the client site.
 - Start manager with method `Client_Plugin_License_Handler::start()` but only at `after_setup_theme` action hook.
 - Show license active/inactive/error notice with `Client_Plugin_License_Handler::show_license_notice()` hooked to `admin_notices` action hook.
 
@@ -120,36 +128,49 @@ public function start() {
 	->disable_form(); // true to disable after license active/deactive, false for not disabling form fields.
 }
 ```
+
 Lets breakdown the above code in steps:
+
 #### Validation
+
 - First, `Client_Plugin_License_Handler::$manager::set_validation()` keys with their respective error message. Default supported validation keys are `email`, `order_id` and `name`. `license_key` is optional but it is highly recommended to add here for showing validation error.
-	- **Validation Keys** will set/unset the respective license form field. Lets say, `order_id` was not set, then ***Purchase Order ID*** field won't be displayed on license form as well as it will not be checked on server also whether the license key was actually for that Order ID.
-	- **Validation Error** is for displaying error message of the respective field if that field is left empty after activate/deactivate button clicked. *It will not be used for server error*. For server error, check it [here](https://github.com/thewebsolver/tws-license-manager-client/blob/master/SERVER.md#validation)
+  - **Validation Keys** will set/unset the respective license form field. Let's say, `order_id` was not set, then **_Purchase Order ID_** field won't be displayed on license form as well as it will not be checked on the server also whether the license key was actually for that Order ID.
+  - **Validation Error** is for displaying an error message of the respective field if that field is left empty after activate/deactivate button is clicked. _It will not be used for server error_. For server error, check it [here](https://github.com/thewebsolver/tws-license-manager-client/blob/master/SERVER.md#validation)
+
 #### Validation Keys
-- Second, `Client_Plugin_License_Handler::$manager::set_keys()` is self explanatory. Set the consumer key and consumer secret that have been generated on server for the user with the capabilites to handle server. Usually user with `manage_options` capability.
+
+- Second, `Client_Plugin_License_Handler::$manager::set_keys()` is self explanatory. Set the consumer key and consumer secret that has been generated on the server for the user with the capabilities to handle the server. Usually user with `manage_options` capability.
+
 #### Connection Details
-- lastly, `Client_Plugin_License_Handler::$manager::connect_with()` will set the server URL to handle license validation. The same constant `Client_Plugin_License_Handler::SERVER_URL` is passed here. Optionally, other options can be passed. For production use, `verify_ssl` must be set to `2` (server must also be on ***https***).
+
+- lastly, `Client_Plugin_License_Handler::$manager::connect_with()` will set the server URL to handle license validation. The same constant `Client_Plugin_License_Handler::SERVER_URL` is passed here. Optionally, other options can be passed. For production use, `verify_ssl` must be set to `2` (server must also be on **_HTTPS_**).
+
 #### Disable Form
-- Highly recommended to set `Client_Plugin_License_Handler::$manager::disable_form()` to `true` on production so no mutliple activation/deactivation attempt happens for already active/inactive license.
+
+- Highly recommended to set `Client_Plugin_License_Handler::$manager::disable_form()` to `true` on production so no multiple activation/deactivation attempt happens for already active/inactive license.
 
 ```php
 public function show_license_notice() {
 	$this->manager->show_notice( true );
 }
 ```
-Above code simply shows response message after **Activate/Deactivate** button is clicked.
-- `Client_Plugin_License_Handler::$manager::show_notice()` takes one paramater to show or not to show the total number of activation remaining. This only works if [Activation](https://www.licensemanager.at/docs/handbook/license-keys/overview/) for the license is set to more than `1`.
+
+The above code simply shows a response message after the **Activate/Deactivate** button is clicked.
+
+- `Client_Plugin_License_Handler::$manager::show_notice()` takes one parameter to show or not to show the total number of activation remaining. This only works if [Activation](https://www.licensemanager.at/docs/handbook/license-keys/overview/) for the license is set to more than `1`.
 
 ---
 
 ### Useful method/properties
+
 - `Client_Plugin_License_Handler::init()->manager->get_license()` - Get the license data. You can pass additional parameter to get the data you want. Some of the useful ones are: `status`, `valid_for`, `expires_at`, and `total_count`. For full list, see the method. `{@filesource - tws-license-manager-client/REST_API/Manager.php}`
 - `Client_Plugin_License_Handler::init()->manager->option` - The Options API key. Useful to get the actual response data saved to database.
 	- Geting value: `get_option( Client_Plugin_License_Handler::init()->manager->option )`
 
 ---
 
-All of the above codes are complied as complete code below. It is a full working example which you can copy to your selling plugin. Just make changes where applicable and you are good to go. Also, needless to say, you must have atleast one license key on server to test it.
+All of the above codes are compiled as complete code below. It is a fully working example that you can copy to your selling plugin. Just make changes where applicable and you are good to go. Also, needless to say, you must have at least one license key on the server to test it.
+
 ```php
 <?php
 
@@ -177,7 +198,7 @@ class Client_Plugin {
 	 * Used as the plugin prefix.
 	 *
 	 * Defaults to the plugin folder name where this client be included.
-	 * Recommended to include this file to root of the selling plugin.
+	 * Recommended to include this file to the root of the selling plugin.
 	 *
 	 * @var string
 	 */
@@ -273,25 +294,27 @@ Client_Plugin::init();
 ---
 
 ### Submenu
+
 Below code shows adding submenu differently without setting it from `Client_Plugin_License_Handler` directly.
 
->Note that page slug and function must be same from the manager for this to work.
+> Note that page slug and function must be the same from the manager for this to work.
 
 Check and perform task in this order:
-- **STEP 1.** Check if submenu is already added by `Client_Plugin::PARENT_SLUG`.
-- **STEP 2.** Add submenu to the "Settings" main menu with page slug defined in `Client_Plugin::$manager::$page_slug`. ***Must use this slug***.
-- **STEP 3.** Generate form for the submenu page from the method defined in `Client_Plugin::$manager::generate_form()`. ***Must use this method***.
 
-**Each steps are commented below for easier understanding.**
+- **STEP 1.** Check if submenu is already added by `Client_Plugin::PARENT_SLUG`.
+- **STEP 2.** Add submenu to the "Settings" main menu with page slug defined in `Client_Plugin::$manager::$page_slug`. **_Must use this slug_**.
+- **STEP 3.** Generate form for the submenu page from the method defined in `Client_Plugin::$manager::generate_form()`. **_Must use this method_**.
+
+**Each step is commented below for easier understanding.**
 
 ```php
 // STEP: 1.
 if ( '' === Client_Plugin::PARENT_SLUG ) {
 	/**
-	 * Any menu page can be used to add license page.
+	 * Any menu page can be used to add a license page.
 	 *
 	 * It can be a menu or submenu page.
-	 * As an example, license page is added as a submenu page under "settings" menu.
+	 * As an example, the license page is added as a submenu page under the "settings" menu.
 	 */
 	function add_license_menu() {
 		add_options_page(
