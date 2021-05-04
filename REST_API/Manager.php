@@ -152,13 +152,6 @@ class Manager {
 	private $errors = array();
 
 	/**
-	 * License active status.
-	 *
-	 * @var bool
-	 */
-	public $is_active = false;
-
-	/**
 	 * The license page slug.
 	 *
 	 * @var string
@@ -189,6 +182,34 @@ class Manager {
 	private $form_state;
 
 	/**
+	 * Additional request headers.
+	 *
+	 * @var array
+	 */
+	private $headers = array();
+
+	/**
+	 * Unique site identifier.
+	 *
+	 * @var string
+	 */
+	private $key;
+
+	/**
+	 * Server response.
+	 *
+	 * @var \stdClass|\WP_Error
+	 */
+	private $response;
+
+	/**
+	 * Whether to disable form after activation/deactivation.
+	 *
+	 * @var bool
+	 */
+	private $disable_form = true;
+
+	/**
 	 * Sets client plugin directory, main file name and parent menu to hook license form submenu page.
 	 *
 	 * @param string $dirname   Required. The client plugin directory name. This will be used as prefixer.
@@ -204,22 +225,14 @@ class Manager {
 		$this->parent_slug = $parent_slug;
 		$this->option      = $dirname . '-license-data';
 		$this->page_slug   = 'tws-activate-' . $dirname;
-		$options           = get_option( $this->option, array() );
+		$this->key         = 'data-' . $this->parse_url( get_site_url( get_current_blog_id() ) );
 		$this->debug       = defined( 'TWS_LICENSE_MANAGER_CLIENT_DEBUG' ) && TWS_LICENSE_MANAGER_CLIENT_DEBUG;
-		if (
-			! empty( $options ) &&
-			isset( $options['success'] ) &&
-			$options['success'] &&
-			! $this->debug
-		) {
-			$this->is_active = true;
-		}
 
 		if ( '' !== $parent_slug && is_string( $parent_slug ) ) {
 			add_action( 'admin_menu', array( $this, 'add_license_page' ), 999 );
 		}
 
-		add_action( 'admin_init', array( $this, 'start' ), 5 );
+		add_action( 'admin_init', array( $this, 'start' ), 9 );
 	}
 
 	/**
@@ -314,6 +327,19 @@ class Manager {
 	}
 
 	/**
+	 * Disables form after activation/deactivation complete.
+	 *
+	 * @param bool $disable True to disable form after success, false otherwise.
+	 *
+	 * @return Manager
+	 */
+	public function disable_form( $disable = true ) {
+		$this->disable_form = $disable;
+
+		return $this;
+	}
+
+	/**
 	 * Sets license key/generator ID for debugging.
 	 *
 	 * @param string $value The license key or generator ID.
@@ -321,23 +347,73 @@ class Manager {
 	 * @return Manager
 	 */
 	public function set_key_or_id( $value ) {
-		$this->license = $value;
+		if ( $this->debug ) {
+			$this->license = $value;
+		}
 
 		return $this;
 	}
 
 	/**
-	 * Starts page.
+	 * Starts page and makes server request and get response back.
+	 *
+	 * Save the response to database.
 	 */
 	public function start() {
 		// Bail if not license page.
-		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		// phpcs:disable WordPress.Security.NonceVerification
 		if ( ! isset( $_GET['page'] ) || $this->page_slug !== $_GET['page'] ) {
 			return;
 		}
 
+		// Lets prettify the license form.
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
+
 		$this->step = isset( $_GET['step'] ) ? sanitize_key( wp_unslash( $_GET['step'] ) ) : '';
+
+		// Bail if license form not submitted yet.
+		if ( ! isset( $_POST['validate_license'] ) || 'validate_license' !== $_POST['validate_license'] ) {
+			return;
+		}
 		// phpcs:enable
+
+		// API Namespace is a must. if it is not given, then error is triggered. Stop processing further.
+		if ( $this->client->has_error() ) {
+			$this->response = $this->client->get_error();
+
+			return;
+		}
+
+		// No proper form input data, request => invalid.
+		// Internally it checks debug mode. Debug mode on, request => valid.
+		if ( ! $this->has_valid_form_data() ) {
+			return;
+		}
+
+		$this->response = $this->process_license_form();
+
+		// Save the response to database if valid response.
+		if (
+			! is_wp_error( $this->response ) &&
+			is_object( $this->response ) &&
+			isset( $this->response->success ) &&
+			$this->response->success
+		) {
+			$value = (object) array(
+				'key'          => $this->response->data->key,
+				'order_id'     => $this->response->data->orderId,
+				'license_key'  => $this->response->data->licenseKey,
+				'valid_for'    => $this->response->data->validFor,
+				'purchased_on' => $this->response->data->createdAt,
+				'expires_at'   => $this->response->data->expiresAt,
+				'status'       => $this->response->data->state,
+				'email'        => $this->response->data->email,
+				'active_count' => $this->response->data->timesActivated,
+				'total_count'  => $this->response->data->timesActivatedMax,
+			);
+
+			update_option( $this->option, maybe_serialize( $value ) );
+		}
 	}
 
 	/**
@@ -356,10 +432,74 @@ class Manager {
 	/**
 	 * Gets product license key.
 	 *
-	 * @return string
+	 * All possible values for parameter `$data` are:
+	 * * `key`          - The key with which metdata is saved in server. Unique to each site.
+	 * * `site_active`  - Whether current site is active with the license or not.
+	 * * `order_id`     - The WooCommerce order ID for which license is generated on server.
+	 * * `license_key`  - The product license key.
+	 * * `valid_for`    - Number of days the license is valid for.
+	 * * `purchased_on` - The license key created date and time.
+	 * * `expires_at`   - The license expiration date.
+	 * * `status`       - The license current active/inactive status.
+	 * * `email`        - The user email address registered on server.
+	 * * `active_count` - Number of times license key have been activated.
+	 * * `total_count`  - Total number of times license key can be activated.
+	 *
+	 * @param string $data The license data to retrive.
+	 *
+	 * @return string|\stdClass
 	 */
-	public function get_license() {
-		return $this->license;
+	public function get_license( $data = '' ) {
+		$license = maybe_unserialize( get_option( $this->option, '' ) );
+
+		if ( ! $data ) {
+			return $license;
+		}
+
+		return is_object( $license ) && property_exists( $license, $data ) ? $license->{$data} : '';
+	}
+
+	/**
+	 * Shows admin notices after license activation/deactivation.
+	 *
+	 * @param bool $show_count Whether to show remaining count if greater than 1.
+	 */
+	public function show_notice( $show_count = true ) {
+		// Nothing to notify if not a valid response or notice already sent.
+		if ( ! is_object( $this->response ) ) {
+			return;
+		}
+
+		if ( is_wp_error( $this->response ) ) {
+			$type = 'error';
+			$msg  = $this->response->get_error_message();
+		}
+
+		if ( isset( $this->response->data->state ) ) {
+			$type   = 'success';
+			$status = strtoupper( $this->response->data->state );
+			$key    = $this->response->data->licenseKey;
+			$max    = $this->response->data->timesActivatedMax;
+
+			// Presistent message.
+			$is_now = __( 'License Key is now', 'tws-license-manager-client' );
+
+			// Remaining licnese count message.
+			// phpcs:ignore Squiz.PHP.DisallowMultipleAssignments.Found
+			$remain = $out_of = $total = $count_msg = '';
+
+			// More than 1 activation possible and show count is true, show remaining notice.
+			if ( 1 < $max && $show_count ) {
+				$remain    = $max - $this->response->data->timesActivated;
+				$total     = $max;
+				$out_of    = __( 'out of', 'tws-license-manager-client' );
+				$count_msg = __( 'activation remaining for this license.', 'tws-license-manager-client' );
+			}
+
+			$msg = sprintf( '<b>%1$s</b> - %2$s <b>%3$s</b>. <b>%4$s</b> %5$s <b>%6$s</b> %7$s', $key, $is_now, $status, $remain, $out_of, $total, $count_msg );
+		}
+
+		echo '<div class="is-dismissible notice notice-' . esc_attr( $type ) . '">' . wp_kses_post( $msg ) . '</div>';
 	}
 
 	/**
@@ -412,6 +552,15 @@ class Manager {
 	}
 
 	/**
+	 * Gets server response.
+	 *
+	 * @return \stdClass|\WP_Error Response as an object, WP_Error if anything goes wrong.
+	 */
+	public function get_response() {
+		return $this->response;
+	}
+
+	/**
 	 * Make remote request.
 	 *
 	 * @param bool   $license     The endpoint after version. ***true*** for `licenses`, ***false*** for `generators`.
@@ -435,6 +584,17 @@ class Manager {
 	 * @return \stdClass|\WP_Error
 	 */
 	public function make_request_with( $license = true, $method = 'GET', $insert_data = array() ) {
+		if ( ! $this->debug ) {
+			return new \WP_Error(
+				'debug_mode_disabled',
+				sprintf(
+					'%1$s %2$s',
+					__METHOD__,
+					__( 'can only be used when debug mode is on. Enable it first in wp-config.php.', 'tws-license-manager-client' )
+				)
+			);
+		}
+
 		// Prepare vars.
 		$endpoint  = $license ? 'licenses' : 'generators';
 		$namespace = (string) $this->client->get_option()->namespace();
@@ -477,7 +637,7 @@ class Manager {
 		$this->route    = "/{$namespace}/{$version}/{$this->endpoint}";
 
 		// Get response from server with given method.
-		return $this->client->request( $this->endpoint, $this->method, $data, $this->parameters );
+		return $this->client->request( $this->endpoint, $this->method, $data, $this->parameters, $this->headers );
 	}
 
 	/**
@@ -497,30 +657,67 @@ class Manager {
 		$this->prepare_request();
 
 		// Get response from server with "GET" method.
-		return $this->client->request( $this->endpoint, 'GET', array(), $this->parameters );
+		return $this->client->request( $this->endpoint, 'GET', array(), $this->parameters, $this->headers );
 	}
 
 	/**
 	 * Prepare request data to pass for getting response.
 	 */
 	private function prepare_request() {
+		if ( $this->key === $this->get_license( 'key' ) ) {
+			// No further processing if license is already active for this site.
+			if ( 'deactivate' !== $this->step && 'active' === $this->get_license( 'status' ) ) {
+				$this->client->add_error(
+					'license_form_invalid_request',
+					__( 'The license for this site has already been activated.', 'tws-license-manager-client' ),
+					array( 'status' => 400 )
+				);
+
+				return;
+			}
+
+			// No further processing if license has never been activated when attempting to deactivate.
+			if ( 'deactivate' === $this->step && 'active' !== $this->get_license( 'status' ) ) {
+				$this->client->add_error(
+					'license_form_invalid_request',
+					__( 'The license for this site is not active yet. Activate your license first.', 'tws-license-manager-client' ),
+					array( 'status' => 400 )
+				);
+
+				return;
+			}
+		}
+
 		// Prepare validation.
-		$validation = ! $this->has_errors() ? $this->validated : array();
 		$license    = is_string( $this->license ) && 0 < strlen( $this->license );
 		$base       = "licenses/{$this->form_state}/";
 		$parameters = $this->parameters;
 
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+		$this->headers['Authorization'] = 'Custom ' . base64_encode( $this->validated['authorize'] );
+
+		// Clear form authorization token from sending as request query.
+		unset( $this->validated['authorize'] );
+
+		if ( isset( $this->validated['email'] ) ) {
+			$this->headers['From'] = $this->validated['email'];
+
+			// Clear form email address from sending as request query.
+			unset( $this->validated['email'] );
+		}
+
 		// A required validation parameter so only form fields can be a valid server request.
-		$license_form     = array( 'form_id' => \sha1( 'validate_licenses' ) );
-		$this->parameters = array_merge( $parameters, $license_form, $validation );
+		$validation       = ! $this->has_errors() ? $this->validated : array();
+		$this->parameters = array_merge( $parameters, $validation );
 
 		// Prepare final endpoint.
 		if ( ! $license ) {
 			// No license key is an error if not on a debug mode.
 			if ( ! $this->debug ) {
 				$this->client->add_error(
-					'license_key_not_valid',
-					__( 'License key was invalid or no license key was given.', 'tws-license-manager-client' )
+					'license_form_invalid_request',
+					__( 'The License key was invalid or no license key was given.', 'tws-license-manager-client' ),
+					array( 'status' => 400 )
 				);
 			}
 		} else {
@@ -553,40 +750,37 @@ class Manager {
 	 * @param bool $to_activate License form to be shown on activation or deactivation page.
 	 */
 	protected function show_license_form( $to_activate = true ) {
-		$parameters  = get_option( $this->option, array() );
-		$license_key = isset( $parameters['license_key'] ) ? $parameters['license_key'] : '';
-		$email       = isset( $parameters['email'] ) ? $parameters['email'] : '';
-		$order_id    = isset( $parameters['order_id'] ) ? $parameters['order_id'] : '';
-
-		// Check status at this stage too so no early call ignored.
-		if (
-			! empty( $parameters ) &&
-			isset( $parameters['success'] ) &&
-			$parameters['success'] &&
-			! $this->debug
-		) {
-			$this->is_active = true;
-		}
-
 		// Form states.
-		$disabled   = '';
+		$query      = array();
 		$deactivate = false;
+		$status     = (string) $this->get_license( 'status' );
+		$value      = $status ? $status : __( 'Not Activated', 'tws-license-manager-client' );
 
 		// Set form state for activating or deactivating license.
 		if ( $to_activate ) {
 			$btn_class  = ' hz_lmac_btn';
-			$button     = $this->is_active ? __( 'Activated', 'tws-license-manager-client' ) : __( 'Activate Now', 'tws-license-manager-client' );
-			$disabled   = $this->is_active ? ' disabled=disabled' : '';
-			$deactivate = $this->is_active ? true : false;
+			$button     = __( 'Activate', 'tws-license-manager-client' );
+			$disabled   = 'active' === $status && $this->disable_form ? ' disabled=disabled' : '';
+			$deactivate = 'active' === $status ? true : $deactivate;
+			$query      = array( 'step' => 'deactivate' );
 		} else {
 			$btn_class = ' hz_lmdac_btn';
-			$button    = __( 'Deactivate Now', 'tws-license-manager-client' );
+			$button    = __( 'Deactivate', 'tws-license-manager-client' );
+			$disabled  = 'inactive' === $status && $this->disable_form ? ' disabled=disabled' : '';
 		}
-		$disabled = false;
 		?>
 
-		<div class="hz_license_form">
-			<div class="hz_license_form_head"></div>
+		<div id="hz_license_form">
+			<div class="hz_license_form_head">
+				<div id="hz_license_branding">
+					<div id="logo"><img src="<?php echo esc_url( plugin_dir_url( __FILE__ ) ); ?>/Assets/logo.png"></div>
+					<h2 id="tagline"><?php esc_html_e( 'The Web Solver License Manager Client', 'tws-license-manager-client' ); ?></h2>
+				</div>
+				<div id="hz_license_status">
+					<span class="label"><?php esc_html_e( 'License Status', 'tws-license-manager-client' ); ?></span>
+					<span class="value <?php echo 'active' === $status ? 'active' : 'inactive'; ?>"><?php echo esc_html( $value ); ?></span>
+				</div>
+			</div>
 			<div class="hz_license_form_content">
 				<form method="POST">
 					<?php
@@ -599,9 +793,10 @@ class Manager {
 					?>
 
 					<?php
-					// phpcs:disable Squiz.PHP.DisallowMultipleAssignments.Found
-					$error = $email_error = $order_error = '';
-					$class = $email_class = $order_class = '';
+					// phpcs:disable
+					$error       = $email_error = $order_error = '';
+					$class       = $email_class = $order_class = '';
+					$license_key = isset( $_POST[ $this->dirname ]['license_key'] ) ? $_POST[ $this->dirname ]['license_key'] : $this->get_license( 'license_key' );
 					// phpcs:enable
 
 					if ( $this->has_errors() && isset( $this->errors['license_key'] ) ) {
@@ -623,7 +818,8 @@ class Manager {
 						</div>
 						<?php
 						if ( array_key_exists( 'email', $this->to_validate ) ) :
-							$for = $this->dirname . '[email]';
+							$for   = $this->dirname . '[email]';
+							$email = isset( $_POST[ $this->dirname ]['email'] ) ? $_POST[ $this->dirname ]['email'] : $this->get_license( 'email' ); // phpcs:ignore
 
 							if ( $this->has_errors() && isset( $this->errors['email'] ) ) :
 								$email_error = $this->errors['email'];
@@ -643,7 +839,8 @@ class Manager {
 						<?php endif; ?>
 						<?php
 						if ( array_key_exists( 'order_id', $this->to_validate ) ) :
-							$for = $this->dirname . '[order_id]';
+							$for      = $this->dirname . '[order_id]';
+							$order_id = isset( $_POST[ $this->dirname ]['order_id'] ) ? $_POST[ $this->dirname ]['order_id'] : $this->get_license( 'order_id' ); // phpcs:ignore
 
 							if ( $this->has_errors() && isset( $this->errors['order_id'] ) ) :
 								$order_error = $this->errors['order_id'];
@@ -674,22 +871,31 @@ class Manager {
 					 */
 					do_action( $this->dirname . '_after_license_form', $this );
 					?>
-
-					<fieldset class="action_buttons"<?php echo esc_attr( $disabled ); ?>>
-						<input type="submit" class="button-primary button button-large button-next hz_btn__prim<?php echo esc_attr( $btn_class ); ?>" value="<?php echo esc_html( $button ); ?>" />
-					</fieldset>
-					<?php if ( $deactivate ) : ?>
-						<fieldset class="deactivate_license">
-							<a href="<?php echo esc_url( $this->build_query_url() ); ?>" class="button button-large button-next hz_btn__skip hz_btn__nav"><?php esc_html_e( 'Deactivate License', 'tws-license-manager-client' ); ?></a>
+					<div id="hz_license_actions">
+						<fieldset class="hz_license_links">
+							<a class="dashboard" href="<?php echo esc_url_raw( $this->build_query_url( admin_url(), array( 'referrer' => $this->page_slug ) ) ); ?>">← <?php esc_html_e( 'Dashboard', 'tws-license-manager-client' ); ?></a>
+							<?php
+							if ( ! $to_activate ) :
+								if ( 'inactive' === $status ) {
+									$class = 'activate';
+									$text  = __( 'Activate', 'tws-license-manager-client' );
+								} else {
+									$class = 'cancel';
+									$text  = __( 'Cancel', 'tws-license-manager-client' );
+								}
+								?>
+								<a class="<?php echo esc_attr( $class ); ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=' . $this->page_slug ) ); ?>"><?php echo esc_html( $text ); ?></a>
+							<?php endif; ?>
+							<?php if ( $deactivate ) : ?>
+								<a class="deactivate" href="<?php echo esc_url_raw( $this->build_query_url( false, $query ) ); ?>" class="button button-large button-next hz_btn__skip hz_btn__nav"><?php esc_html_e( 'Deactivate', 'tws-license-manager-client' ); ?></a>
+							<?php endif; ?>
 						</fieldset>
-					<?php else : ?>
-						<a href="<?php echo esc_url( $this->build_query_url( admin_url(), array( 'referrer' => $this->page_slug ) ) ); ?>">
-							<?php esc_html_e( 'Back to Dashboard', 'tws-license-manager-client' ); ?>
-						</a>
-					<?php endif; ?>
+						<fieldset class="hz_license_button"<?php echo esc_attr( $disabled ); ?>>
+							<input type="submit" class="hz_btn__prim<?php echo esc_attr( $btn_class ); ?>" value="<?php echo esc_html( $button ); ?>" />
+						</fieldset>
+					</div>
 					<fieldset class="license_validation">
 						<?php
-						wp_nonce_field( 'hzfex-validate-license-form' );
 						/**
 						 * Without this hidden input field, save function call will not trigger.
 						 *
@@ -714,9 +920,7 @@ class Manager {
 	 *
 	 * @return string
 	 */
-	private function build_query_url( $url = false, $parameters = array() ) {
-		$deactivate = array( 'step' => 'deactivate' );
-		$parameters = array_merge( $parameters, $deactivate );
+	private function build_query_url( $url = false, $parameters ) {
 		return add_query_arg( $parameters, $url );
 	}
 
@@ -725,13 +929,11 @@ class Manager {
 	 *
 	 * NOTE: Sanitization is a must for form data. Some are applied, others not.
 	 *
-	 * @param bool $save Whether to save form inputs to database or not.
-	 *
 	 * @return bool True if form has all fields value, false otherwise.
 	 *
 	 * @todo Make sanitization as required.
 	 */
-	public function has_valid_form_data( $save = true ) {
+	public function has_valid_form_data() {
 		// Bail if debug mode is enabled.
 		if ( $this->debug ) {
 			return true;
@@ -743,27 +945,28 @@ class Manager {
 		// Internal check for validation field. If not found, request => invalid.
 		if (
 			! isset( $data['tws_license_form'] ) ||
-			! isset( $data['validate_license'] ) ||
-			'validate_license' !== $data['validate_license']
+			! isset( $data['validate_license'] )
 		) {
 			return false;
 		}
 
 		$this->form_state              = sanitize_key( $data['tws_license_form'] );
 		$this->validated['form_state'] = $this->form_state;
+		$this->validated['authorize']  = $data['validate_license'];
 
 		if ( isset( $data[ $this->dirname ]['license_key'] ) ) {
-			$this->license = strtoupper( sanitize_key( $data[ $this->dirname ]['license_key'] ) );
+			$this->license = sanitize_text_field( $data[ $this->dirname ]['license_key'] );
 
 			// Catch error for license key with no data for client side validation.
 			if ( isset( $this->to_validate['license_key'] ) ) {
-				$license_key = $this->to_validate['license_key'];
+				$license_key   = $data[ $this->dirname ]['license_key'];
+				$license_error = $this->to_validate['license_key'];
 
-				// Clear license key so it will not be set as validation parameter.
+				// Clear license key so it will not be used for validation.
 				unset( $this->to_validate['license_key'] );
 
 				if ( empty( $license_key ) ) {
-					$this->errors['license_key'] = $this->to_validate['license_key'];
+					$this->errors['license_key'] = $license_error;
 				}
 			}
 		}
@@ -794,18 +997,11 @@ class Manager {
 
 			if ( isset( $data[ $this->dirname ][ $key ] ) && 'name' === $data[ $this->dirname ][ $key ] ) {
 				$this->validated['name'] = sanitize_title( $data[ $this->dirname ][ $key ] );
-
-				// Catch error for product name with no data for client side validation.
-				if ( empty( $data[ $this->dirname ]['name'] ) ) {
-					$this->errors['name'] = $error;
-					$with_data[]          = 0;
-				}
-				continue;
 			}
 
 			// Any other validation data.
 			if ( isset( $data[ $this->dirname ][ $key ] ) ) {
-				$this->validated[ $key ] = $data[ $this->dirname ][ $key ];
+				$this->validated[ $key ] = sanitize_text_field( $data[ $this->dirname ][ $key ] );
 
 				// Catch errors for other inputs with no data for client side validation.
 				if ( empty( $data[ $this->dirname ][ $key ] ) ) {
@@ -813,14 +1009,6 @@ class Manager {
 					$with_data[]          = 0;
 				}
 			}
-		}
-
-		// Prepare data to save to database.
-		$value = array_merge( array( 'license_key' => $this->license ), $this->validated );
-
-		// Save form data to database if not activated before. REVIEW: update setting.
-		if ( $save ) {
-			update_option( $this->option, $value );
 		}
 
 		return $this->can_make_request( $with_data );
@@ -870,6 +1058,20 @@ class Manager {
 	 */
 	public function enqueue_scripts() {
 		wp_enqueue_style( $this->dirname . '-style', plugin_dir_url( __FILE__ ) . '/Assets/style.css', array(), self::VERSION );
+	}
+
+	/**
+	 * Parses URL to get the domain.
+	 *
+	 * @param string $domain The full URI.
+	 *
+	 * @return string
+	 */
+	private function parse_url( $domain ) {
+		$domain = \wp_parse_url( $domain, PHP_URL_HOST );
+		$domain = \ltrim( $domain, 'www.' );
+
+		return sanitize_key( $domain );
 	}
 
 	/**
