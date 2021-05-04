@@ -470,9 +470,11 @@ class Manager {
 			return;
 		}
 
+		$type = 'error';
+		$msg  = __( 'Something went wrong. Please contact plugin support.', 'tws-license-manager-client' );
+
 		if ( is_wp_error( $this->response ) ) {
-			$type = 'error';
-			$msg  = $this->response->get_error_message();
+			$msg = $this->response->get_error_message();
 		}
 
 		if ( isset( $this->response->data->state ) ) {
