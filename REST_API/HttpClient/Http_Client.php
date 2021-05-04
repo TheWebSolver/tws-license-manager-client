@@ -103,6 +103,13 @@ class Http_Client {
 	private $method;
 
 	/**
+	 * Additional request headers.
+	 *
+	 * @var array
+	 */
+	private $headers = array();
+
+	/**
 	 * Initializes HTTP client.
 	 *
 	 * @param string $url             Store URL.
@@ -127,7 +134,7 @@ class Http_Client {
 		if ( ! \function_exists( 'curl_version' ) ) {
 			$this->add_error(
 				'cURL_not_installed',
-				__( 'cURL is not installed on this server. Please install it for activating license.', 'tws-license-manager-client' )
+				__( 'PHP cURL extension is not installed on this server. Please install it for license activation/deactivation.', 'tws-license-manager-client' )
 			);
 		}
 	}
@@ -218,15 +225,23 @@ class Http_Client {
 	/**
 	 * Creates request headers.
 	 *
-	 * @param bool $send_data If request send data or not. Usually for `POST` method.
+	 * @param bool  $send_data If request send data or not. Usually for `POST` method.
+	 * @param array $args      Additional HTTP request headers.
 	 *
 	 * @return array
+	 *
+	 * @link https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
 	 */
-	protected function create_request_headers( $send_data = false ) {
+	protected function create_request_headers( $send_data = false, $args = array() ) {
 		$headers = array(
 			'Accept'     => 'application/json',
 			'User-Agent' => $this->options->user_agent() . '/' . Manager::VERSION,
+			'Referer'    => get_site_url( get_current_blog_id() ),
 		);
+
+		if ( ! empty( $args ) ) {
+			$headers = array_merge( $headers, $args );
+		}
 
 		if ( $send_data ) {
 			$headers['Content-Type'] = 'application/json;charset=utf-8';
@@ -265,7 +280,7 @@ class Http_Client {
 			$this->build_url_query( $url, $parameters ),
 			$method,
 			$parameters,
-			$this->create_request_headers( $has_data ),
+			$this->create_request_headers( $has_data, $this->headers ),
 			$body
 		);
 
@@ -369,15 +384,13 @@ class Http_Client {
 				$error_code    = $errors->code;
 			}
 
-			$this->add_error(
-				$error_code,
-				sprintf( '%1$s: %2$s', __( 'Remote Server Error', 'tws-license-manager-client' ), $error_message ),
-				array(
-					'request'        => $this->request,
-					'response'       => $this->response,
-					'response_error' => $errors,
-				)
+			$data = array(
+				'request'        => $this->request,
+				'response'       => $this->response,
+				'response_error' => $errors,
 			);
+
+			$this->add_error( $error_code, $error_message, $data );
 		}
 
 		return $parsed_response;
@@ -423,13 +436,19 @@ class Http_Client {
 	 * @param string $method     Request method.
 	 * @param array  $data       Request data.
 	 * @param array  $parameters Request parameters. Includes form validation params.
+	 * @param array  $headers    Additional HTTP request headers.
 	 *
 	 * @return \stdClass|\WP_Error Response as an object if everything valid, WP_Error otherwise.
 	 */
-	public function request( $endpoint, $method, $data = array(), $parameters = array() ) {
-		$this->ch = \curl_init(); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+	public function request( $endpoint, $method, $data = array(), $parameters = array(), $headers = array() ) {
+		$this->ch      = \curl_init(); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+		$this->headers = $headers;
+		$request       = $this->create_request( $endpoint, $method, $data, $parameters );
 
-		$request = $this->create_request( $endpoint, $method, $data, $parameters );
+		// If request triggered error, don't proceed any further.
+		if ( $this->has_error() ) {
+			return $this->get_error();
+		}
 
 		$this->process_request();
 
@@ -442,7 +461,7 @@ class Http_Client {
 				'cURL_error',
 				sprintf(
 					'%1$s. cURL Error Number: [%2$s]. cURL Error Message: [%3$s]',
-					__( 'An error occured when making remote server request', 'tws-license-manager-client' ),
+					__( 'An error occured when making activation/deactivation request', 'tws-license-manager-client' ),
 					$err_code,
 					\curl_error( $this->ch ) // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_error
 				),
