@@ -50,12 +50,12 @@ Every request validation happens at this stage.
 	- activate/deactivate endpoint is checked
 	- request route and route created from the license form endpoint is matched
 	- license key from the license form must be present on the request route
-	- client URL, active status, activate/deactivate form state, and email (if set for validation from the client) must not already exist as license metadata (these are saved at [later stage](#License-meta-key/value) when sending back response)
+	- client URL, active status, activate/deactivate form state, and email (if set for validation from the client) must not already exist as license metadata (these are saved at [later stage](#License-meta-keyvalue) when sending back response)
 
 Each of the above steps will return `WP_Error()` if validation failed and no response will be sent.
 Further checks are made if everything at this stage is valid.
 
->Unique meta key is generated from client site URL (which is passed as request header `Referer` from the client) that will be the part of meta key explained [later](#License-meta-key/value)
+>Unique meta key is generated from client site URL (which is passed as request header `Referer` from the client) that will be the part of meta key explained [later](#License-meta-keyvalue).
 
 - Each validation keys passed from [client](https://github.com/thewebsolver/tws-license-manager-client/blob/master/CLIENT.md#validation) are checked. If any one of those failed to match, then `WP_Error()` is sent back instead of a response.
 - There is a `hzfex_license_manager_server_request_validation` action hook if any additional checks to be performed by you except those default set from [client](https://github.com/thewebsolver/tws-license-manager-client/blob/master/CLIENT.md#validation).

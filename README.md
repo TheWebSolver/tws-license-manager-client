@@ -31,7 +31,7 @@ $ composer install
 
 ## Example Codes:
 - Server docs on [License Manager][server-docs].
-- [CLIENT.md](https://github.com/thewebsolver/tws-license-manager-client/blob/master/client.md) contains all the codes that will intialize license manager client, add submenu page to display activation/deactivation form and get response back from license manager server when valid data are submitted.
+- [CLIENT.md](https://github.com/thewebsolver/tws-license-manager-client/blob/master/CLIENT.md) contains all the codes that will intialize license manager client, add submenu page to display activation/deactivation form and get response back from license manager server when valid data are submitted.
 - [SERVER.md](https://github.com/thewebsolver/tws-license-manager-client/blob/master/SERVER.md) contains all codes that will validate the request from client site and activate the license.
 
 ## In brief, you must make changes to codes shown in `CLIENT.md` file:
