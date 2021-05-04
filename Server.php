@@ -166,7 +166,7 @@ final class Manager {
 
 		/**
 		 * When debug mode if off:
-		 * - License shouldn't already have been activated for same site.
+		 * - License shouldn't already have been activated/deactivated for same site.
 		 * - Route must be for license activation/deactivation.
 		 * - Request can only be made from the client site license form.
 		 * - Endpoint (activate/deactivate) will be generated from the client license form.
@@ -177,7 +177,7 @@ final class Manager {
 		if ( ! $this->debug ) {
 			// Request is not being sent from license form, $request => WP_Error.
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
-			if ( ! isset( $authorize[1] ) || 'validate_license' !== base64_decode( $authorize[1] ) ) {
+			if ( ! isset( $authorize[1] ) || 'validate_license' !== \base64_decode( $authorize[1] ) ) {
 				return $this->request_error( __( 'Request was made outside of license form.', 'tws-license-manager-server' ), 401 );
 			}
 
