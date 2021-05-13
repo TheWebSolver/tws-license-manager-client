@@ -25,7 +25,7 @@ $server->set_validation(
 		'license_key' => __( 'License key not found.', 'tws-license-manager-server' ),
 		'email'       => __( 'Email address not found.', 'tws-license-manager-server' ),
 		'order_id'    => __( 'Order not found.', 'tws-license-manager-server' ),
-		'name'        => __( 'Product not found.', 'tws-license-manager-server' ),
+		'slug'        => __( 'Product not found.', 'tws-license-manager-server' ),
 	)
 );
 $server->validate();
@@ -38,7 +38,7 @@ Let's breakdown the above code into steps:
 	- **$license** is the request route endpoint. It must be `true` when debug is set to `false`. The endpoint will be appended after the version. Set this to ***true*** for `licenses`, ***false*** for `generators`. The final ***endpoint*** will then be `/lmfwc/v2/licenses` or `/lmfwc/v2/generators` depending on what you set its value.
 
 #### Validation
-- `Manager::set_validation` keys with their respective error message. Default supported validation keys are `email`, `order_id`, and `name`. `license_key` is optional but it is highly recommended to add here for showing a validation error.
+- `Manager::set_validation` keys with their respective error message. Default supported validation keys are `email`, `order_id`, and `slug`. `license_key` is optional but it is highly recommended to add here for showing a validation error.
 - Though the method name is the same as the client method, it is just for sending back error messages if validation failed.
 	- **Validation Keys** should be the same that you set for the client. For eg. `order_id` is set here *(on the server)* and it is set in *client site* also. On the server, the order ID didn't match with that of the license form field **(Purchase Order ID)** on *client site*. In that case, the error message you set here *(on the server)* will be returned as **WP_Error()** message and the same will be displayed as admin notice on *client site*.
 	- **Validation Error** is for displaying an error message of the respective field if that field validation fails. _It will not be used for client error_. For client error, check it [here](https://github.com/thewebsolver/tws-license-manager-client/blob/master/CLIENT.md#validation).
