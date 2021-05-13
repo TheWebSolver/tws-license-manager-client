@@ -79,7 +79,7 @@ class Manager {
 	 *
 	 * @var string
 	 */
-	public $product_name = '';
+	public $product_slug = '';
 
 	/**
 	 * Method for calling REST API. Defaults to `GET`.
@@ -285,7 +285,7 @@ class Manager {
 	 *   'order_id'    => __( 'Enter same/valid purchase order ID.', 'tws-license-manager-client' ),
 	 *
 	 *   // Hidden input field will be generated. The WooCommerce product name set for this plugin on server site that matches with the published product title. This will be used for validation on server site.
-	 *   'name'        => 'Sold Plugin Name',
+	 *   'slug'        => 'Sold Plugin Slug on server',
 	 *  )
 	 * );
 	 * ```
@@ -293,9 +293,9 @@ class Manager {
 	public function set_validation( $data = array() ) {
 		$this->to_validate = $data;
 
-		// Set the plugin/product name on server if used for validation.
-		if ( isset( $data['name'] ) ) {
-			$this->product_name = $data['name'];
+		// Set the plugin/product slug on server if used for validation.
+		if ( isset( $data['slug'] ) ) {
+			$this->product_slug = $data['slug'];
 		}
 
 		return $this;
@@ -347,9 +347,7 @@ class Manager {
 	 * @return Manager
 	 */
 	public function set_key_or_id( $value ) {
-		if ( $this->debug ) {
-			$this->license = $value;
-		}
+		$this->license = $value;
 
 		return $this;
 	}
@@ -397,19 +395,19 @@ class Manager {
 			! is_wp_error( $this->response ) &&
 			is_object( $this->response ) &&
 			isset( $this->response->success ) &&
-			$this->response->success
+			$this->response->success &&
+			! $this->debug
 		) {
 			$value = (object) array(
 				'key'          => $this->response->data->key,
-				'order_id'     => $this->response->data->orderId,
-				'license_key'  => $this->response->data->licenseKey,
-				'valid_for'    => $this->response->data->validFor,
-				'purchased_on' => $this->response->data->createdAt,
-				'expires_at'   => $this->response->data->expiresAt,
-				'status'       => $this->response->data->state,
 				'email'        => $this->response->data->email,
-				'active_count' => $this->response->data->timesActivated,
+				'status'       => $this->response->data->state,
+				'order_id'     => $this->response->data->orderId,
+				'valid_for'    => $this->response->data->validFor,
+				'expires_at'   => $this->response->data->expiresAt,
 				'total_count'  => $this->response->data->timesActivatedMax,
+				'license_key'  => $this->response->data->licenseKey,
+				'purchased_on' => $this->response->data->createdAt,
 			);
 
 			update_option( $this->option, maybe_serialize( $value ) );
@@ -430,22 +428,18 @@ class Manager {
 	}
 
 	/**
-	 * Gets product license key.
+	 * Gets product license data.
 	 *
-	 * All possible values for parameter `$data` are:
-	 * * `key`          - The key with which metdata is saved in server. Unique to each site.
-	 * * `site_active`  - Whether current site is active with the license or not.
-	 * * `order_id`     - The WooCommerce order ID for which license is generated on server.
-	 * * `license_key`  - The product license key.
-	 * * `valid_for`    - Number of days the license is valid for.
+	 * @param string $data The license data to retrive. Possible values are:
+	 * * `key`          - The key with which metdata is saved in server. Unique to each site
+	 * * `email`        - The user email address registered on server
+	 * * `status`       - The license current active/inactive status
+	 * * `order_id`     - The WooCommerce order ID for which license is generated on server
+	 * * `valid_for`    - Number of days the license is valid for
+	 * * `expires_at`   - The license expiration date
+	 * * `total_count`  - Total number of times license key can be activated
+	 * * `license_key`  - The product license key
 	 * * `purchased_on` - The license key created date and time.
-	 * * `expires_at`   - The license expiration date.
-	 * * `status`       - The license current active/inactive status.
-	 * * `email`        - The user email address registered on server.
-	 * * `active_count` - Number of times license key have been activated.
-	 * * `total_count`  - Total number of times license key can be activated.
-	 *
-	 * @param string $data The license data to retrive.
 	 *
 	 * @return string|\stdClass
 	 */
@@ -484,21 +478,20 @@ class Manager {
 			$max    = $this->response->data->timesActivatedMax;
 
 			// Presistent message.
-			$is_now = __( 'License Key is now', 'tws-license-manager-client' );
+			/* Translators: %1$s - License Key, %2$s - Current license status. */
+			$now = sprintf( __( '%1$s - License Key is now %2$s', 'tws-license-manager-client' ), "<b>{$key}</b>", "<b>{$status}</b>" );
 
-			// Remaining licnese count message.
-			// phpcs:ignore Squiz.PHP.DisallowMultipleAssignments.Found
-			$remain = $out_of = $total = $count_msg = '';
+			$count_msg = '';
 
 			// More than 1 activation possible and show count is true, show remaining notice.
 			if ( 1 < $max && $show_count ) {
-				$remain    = $max - $this->response->data->timesActivated;
-				$total     = $max;
-				$out_of    = __( 'out of', 'tws-license-manager-client' );
-				$count_msg = __( 'activation remaining for this license.', 'tws-license-manager-client' );
+				$remain = $max - $this->response->data->timesActivated;
+
+				/* Translators: %1$s - remaining activation count, %2$s - total activation count. */
+				$count_msg = sprintf( __( '%1$s out of %2$s activation remaining for this license', 'tws-license-manager-client' ), "<b>{$remain}</b>", "<b>{$max}</b>" );
 			}
 
-			$msg = sprintf( '<b>%1$s</b> - %2$s <b>%3$s</b>. <b>%4$s</b> %5$s <b>%6$s</b> %7$s', $key, $is_now, $status, $remain, $out_of, $total, $count_msg );
+			$msg = sprintf( '%1$s. %2$s.', $now, $count_msg );
 		}
 
 		echo '<div class="is-dismissible notice notice-' . esc_attr( $type ) . '">' . wp_kses_post( $msg ) . '</div>';
@@ -590,9 +583,9 @@ class Manager {
 			return new \WP_Error(
 				'debug_mode_disabled',
 				sprintf(
-					'%1$s %2$s',
-					__METHOD__,
-					__( 'can only be used when debug mode is on. Enable it first in wp-config.php.', 'tws-license-manager-client' )
+					/* Translators: %s - Method name. */
+					__( '%s can only be used when debug mode is on. Enable it first in wp-config.php.', 'tws-license-manager-client' ),
+					'<b>' . __METHOD__ . '</b>'
 				)
 			);
 		}
@@ -643,6 +636,33 @@ class Manager {
 	}
 
 	/**
+	 * Validates Existing License on server.
+	 *
+	 * @param array $parameters The request parameters.
+	 *
+	 * @return \stdClass|\WP_Error
+	 */
+	public function validate_license( array $parameters ) {
+		$license = $this->get_license();
+
+		if ( ! isset( $license->key ) || ! isset( $license->email ) || ! isset( $license->purchased_on ) ) {
+			return new \WP_Error(
+				'license_data_invalid',
+				__( 'Validation failed due to invalid or no license data.', 'tws-license-manager-client' )
+			);
+		}
+
+		$headers = array(
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+			'Authorization' => 'TWS ' . base64_encode( "{$license->key}:{$license->purchased_on}" ),
+			'From'          => $license->email,
+			'Referer'       => get_bloginfo( 'url' ),
+		);
+
+		return $this->client->request( 'licenses/validate/' . $license->license_key, 'GET', array(), $parameters, $headers );
+	}
+
+	/**
 	 * Activates/deactivates the license key.
 	 *
 	 * This will automatically handle whether activation or deactivation request is being made.
@@ -666,6 +686,16 @@ class Manager {
 	 * Prepare request data to pass for getting response.
 	 */
 	private function prepare_request() {
+		// Prevent sending request if is in debug mode.
+		if ( $this->debug ) {
+			$this->client->add_error(
+				'debug_mode_not_allowed',
+				__( 'Using license form is not allowed in debug mode.', 'tws-license-manager-client' )
+			);
+
+			return;
+		}
+
 		if ( $this->key === $this->get_license( 'key' ) ) {
 			// No further processing if license is already active for this site.
 			if ( 'deactivate' !== $this->step && 'active' === $this->get_license( 'status' ) ) {
@@ -696,7 +726,7 @@ class Manager {
 		$parameters = $this->parameters;
 
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
-		$this->headers['Authorization'] = 'Custom ' . base64_encode( $this->validated['authorize'] );
+		$this->headers['Authorization'] = 'TWS ' . base64_encode( $this->validated['authorize'] );
 
 		// Clear form authorization token from sending as request query.
 		unset( $this->validated['authorize'] );
@@ -860,8 +890,8 @@ class Manager {
 								<?php endif; ?>
 							</div>
 							<?php endif; ?>
-						<?php if ( is_string( $this->product_name ) && 0 < strlen( $this->product_name ) ) : ?>
-							<input type="hidden" id="<?php echo esc_attr( $this->dirname ); ?>[name]" name="<?php echo esc_attr( $this->dirname ); ?>[name]" type="text" value="<?php echo esc_attr( $this->product_name ); ?>">
+							<?php if ( is_string( $this->product_slug ) && 0 < strlen( $this->product_slug ) ) : ?>
+							<input type="hidden" id="<?php echo esc_attr( $this->dirname ); ?>[slug]" name="<?php echo esc_attr( $this->dirname ); ?>[slug]" type="text" value="<?php echo esc_attr( $this->product_slug ); ?>">
 							<?php endif; ?>
 					</fieldset>
 
@@ -997,8 +1027,8 @@ class Manager {
 				continue;
 			}
 
-			if ( isset( $data[ $this->dirname ][ $key ] ) && 'name' === $data[ $this->dirname ][ $key ] ) {
-				$this->validated['name'] = sanitize_title( $data[ $this->dirname ][ $key ] );
+			if ( isset( $data[ $this->dirname ][ $key ] ) && 'slug' === $data[ $this->dirname ][ $key ] ) {
+				$this->validated['slug'] = sanitize_title( $data[ $this->dirname ][ $key ] );
 			}
 
 			// Any other validation data.
