@@ -22,23 +22,23 @@ namespace TheWebSolver\License_Manager\REST_API;
 use TheWebSolver\License_Manager\REST_API\HttpClient\Http_Client;
 
 /**
- * The Web Solver Licence Manager Client Manager class.
+ * Handles Client.
  */
 class Manager {
 	/**
-	 * WooCommerce REST API Client Manager version.
+	 * The Web Solver License Manager Client Manager version.
 	 */
-	const VERSION = '1.0.0';
+	const VERSION = '2.0.0';
 
 	/**
-	 * API Consumer Key.
+	 * Consumer Key.
 	 *
 	 * @var string
 	 */
 	private $consumer_key = '';
 
 	/**
-	 * API Consumer Secret.
+	 * Consumer Secret.
 	 *
 	 * @var string
 	 */
@@ -75,18 +75,11 @@ class Manager {
 	private $license = '';
 
 	/**
-	 * WooCommerce Product Name set on client site for this plugin.
+	 * WooCommerce Product Slug set on server for this product.
 	 *
 	 * @var string
 	 */
-	public $product_slug = '';
-
-	/**
-	 * Method for calling REST API. Defaults to `GET`.
-	 *
-	 * @var string
-	 */
-	private $method = 'GET';
+	private $product_slug = '';
 
 	/**
 	 * REST API route.
@@ -103,32 +96,39 @@ class Manager {
 	public $client;
 
 	/**
-	 * The client plugin directory name.
+	 * The client directory name.
 	 *
 	 * @var string
 	 */
-	private $dirname;
+	public $dirname;
 
 	/**
-	 * The client plugin main file name.
+	 * The client main file name.
 	 *
 	 * @var string
 	 */
-	private $filename;
+	public $filename;
 
 	/**
-	 * Parent slug for activation menu.
+	 * Parent slug for creating activate/deactivate license submenu.
 	 *
 	 * @var string
 	 */
 	private $parent_slug;
 
 	/**
-	 * Option key.
+	 * License data option key.
 	 *
 	 * @var string
 	 */
-	public $option;
+	public $license_option;
+
+	/**
+	 * Product data option key.
+	 *
+	 * @var string
+	 */
+	public $product_option;
 
 	/**
 	 * Submenu hook suffix. Will only be set if parent slug is passed.
@@ -159,11 +159,13 @@ class Manager {
 	public $page_slug;
 
 	/**
-	 * Which step the page content to be shown.
+	 * Current license form step.
+	 *
+	 * If license deactivation happening, it will be set to `deactivate`.
 	 *
 	 * @var step
 	 */
-	public $step = '';
+	private $step = '';
 
 	/**
 	 * Whether plugin is in debug mode.
@@ -189,7 +191,7 @@ class Manager {
 	private $headers = array();
 
 	/**
-	 * Unique site identifier.
+	 * Unique client identifier.
 	 *
 	 * @var string
 	 */
@@ -210,29 +212,53 @@ class Manager {
 	private $disable_form = true;
 
 	/**
-	 * Sets client plugin directory, main file name and parent menu to hook license form submenu page.
+	 * Manage license of product by type.
 	 *
-	 * @param string $dirname   Required. The client plugin directory name. This will be used as prefixer.
-	 * @param string $filename  Optional. If same as dirname, no need to pass it. The client plugin main file name (with extension `.php`).
+	 * Possible values are: `plugin` or `theme`.
+	 *
+	 * @var string
+	 */
+	private $type = 'plugin';
+
+	/**
+	 * Sets client directory, main file name and parent menu to hook license form submenu page.
+	 *
+	 * @param string $dirname     Required. The client directory name. This will be used as prefix.
+	 *                            This can either be theme directory name or plugin directory name
+	 *                            depending upon the type you set at `Manager::set_type()` (only
+	 *                            need to set it if the product is theme).
+	 * @param string $filename    Optional. Only for plugin. If same as dirname, no need to pass it.
+	 *                            The client plugin main file name (with extension `.php`).
 	 * @param string $parent_slug Optional. Parent menu slug to display activation form.
 	 *                            Form must be called elsewhere in plugin if parent slug not given.
 	 *                            {@see @method `Manager::generate_form()`}.
 	 */
-	public function __construct( $dirname, $filename = '', $parent_slug = '' ) {
-		// Set properties.
-		$this->dirname     = $dirname;
-		$this->filename    = '' === $filename ? $dirname . '.php' : $filename;
-		$this->parent_slug = $parent_slug;
-		$this->option      = $dirname . '-license-data';
-		$this->page_slug   = 'tws-activate-' . $dirname;
-		$this->key         = 'data-' . $this->parse_url( get_site_url( get_current_blog_id() ) );
-		$this->debug       = defined( 'TWS_LICENSE_MANAGER_CLIENT_DEBUG' ) && TWS_LICENSE_MANAGER_CLIENT_DEBUG;
+	public function __construct( string $dirname, string $filename = '', string $parent_slug = '' ) {
+		$this->dirname        = $dirname;
+		$this->filename       = '' === $filename ? $dirname . '.php' : $filename;
+		$this->parent_slug    = $parent_slug;
+		$this->license_option = $dirname . '-license-data';
+		$this->product_option = $dirname . '-product-data';
+		$this->page_slug      = 'tws-activate-' . $dirname;
+		$this->key            = 'data-' . $this->parse_url( get_bloginfo( 'url' ) );
+		$this->debug          = defined( 'TWS_LICENSE_MANAGER_CLIENT_DEBUG' ) && TWS_LICENSE_MANAGER_CLIENT_DEBUG;
 
-		if ( '' !== $parent_slug && is_string( $parent_slug ) ) {
+		if ( '' !== $parent_slug ) {
 			add_action( 'admin_menu', array( $this, 'add_license_page' ), 999 );
 		}
 
 		add_action( 'admin_init', array( $this, 'start' ), 9 );
+	}
+
+	/**
+	 * Sets the product type.
+	 *
+	 * The possible types are: `plugin` or `theme`.
+	 *
+	 * @param string $type The product type.
+	 */
+	public function set_type( string $type = 'plugin' ) {
+		$this->type = $type;
 	}
 
 	/**
@@ -243,7 +269,7 @@ class Manager {
 	 *
 	 * @return Manager
 	 */
-	public function set_keys( $key, $secret ) {
+	public function set_keys( string $key, string $secret ): Manager {
 		$this->consumer_key    = $key;
 		$this->consumer_secret = $secret;
 
@@ -255,7 +281,7 @@ class Manager {
 	 *
 	 * @param array $parameters API URL parameters.
 	 */
-	public function set_parameters( $parameters ) {
+	public function set_parameters( array $parameters ) {
 		$this->parameters = $parameters;
 	}
 
@@ -263,37 +289,37 @@ class Manager {
 	 * Sets API additional validation data.
 	 *
 	 * @param array $data The data can be of following types with their respective error message **(required)**.
-	 * * @type `string` `license_key` The generated license key for this plugin.
-	 * * @type `string` `email`       The customer email address (email that is used to purchase this plugin).
+	 * * @type `string` `license_key` The generated license key for this product.
+	 * * @type `string` `email`       The email address (used to purchase this product on server).
 	 * * @type `int`    `order_id`    The order ID (order ID for which license is generated).
-	 * * @type `string` `name`        The product name (this plugin woocommerce product title on server site).
+	 * * @type `string` `slug`        The slug (this product woocommerce product slug on server).
 	 *
 	 * @return Manager
 	 *
 	 * @example usage
 	 * ```
-	 * // Check license key, email address, order_id, purchased product/plugin name for validation and their error message for client side.
+	 * // Check license key, email address, order ID, purchased plugin/theme slug on server and show respective error messages when activating/deactivating license on client.
 	 * Manager::set_validation(
 	 *  array(
-	 *   // End user must input license key in form field. Validation on client site also if field is blank.
+	 *   // REQUIRED: End user must input license key in form field. Shows client error if field is blank.
 	 *   'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 	 *
-	 *   // Email field will be generated and user must input email registered on server site and same was used to purchase the plugin. Validation on client site also if field is blank.
+	 *   // OPTIONAL BUT RECOMMENDED: Email field will be generated and user must input email registered on server and same was used to purchase this product. Shows client error if field is blank.
 	 *   'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
 	 *
-	 *   // Order ID field will be generated and user must input the Order ID for which license key was generated. Validation on client site also if field is blank.
+	 *   // OPTIONAL: Order ID field will be generated and user must input the Order ID for which license key was generated. Shows client error if field is blank.
 	 *   'order_id'    => __( 'Enter same/valid purchase order ID.', 'tws-license-manager-client' ),
 	 *
-	 *   // Hidden input field will be generated. The WooCommerce product name set for this plugin on server site that matches with the published product title. This will be used for validation on server site.
-	 *   'slug'        => 'Sold Plugin Slug on server',
+	 *   // REQUIRED: Hidden input field will be generated. The WooCommerce product slug set for this product on server that matches with the published product slug. Gets response error if slug didn't match.
+	 *   'slug'        => 'woocommerce-product-slug-for-this-product-on-server',
 	 *  )
 	 * );
 	 * ```
 	 */
-	public function set_validation( $data = array() ) {
+	public function set_validation( array $data = array() ): Manager {
 		$this->to_validate = $data;
 
-		// Set the plugin/product slug on server if used for validation.
+		// Set the product slug on server if used for validation.
 		if ( isset( $data['slug'] ) ) {
 			$this->product_slug = $data['slug'];
 		}
@@ -309,13 +335,13 @@ class Manager {
 	 *
 	 * @return Manager
 	 */
-	public function connect_with( $server_url, $options = array() ) {
+	public function connect_with( string $server_url, array $options = array() ): Manager {
 		$defaults = array(
 			'namespace' => 'lmfwc',
 			'version'   => 'v2',
 		);
 
-		$options      = array_merge( $defaults, $options );
+		$options      = wp_parse_args( $options, $defaults );
 		$this->client = new Http_Client(
 			$server_url,
 			$this->consumer_key,
@@ -333,7 +359,7 @@ class Manager {
 	 *
 	 * @return Manager
 	 */
-	public function disable_form( $disable = true ) {
+	public function disable_form( bool $disable = true ): Manager {
 		$this->disable_form = $disable;
 
 		return $this;
@@ -346,14 +372,14 @@ class Manager {
 	 *
 	 * @return Manager
 	 */
-	public function set_key_or_id( $value ) {
+	public function set_key_or_id( string $value ): Manager {
 		$this->license = $value;
 
 		return $this;
 	}
 
 	/**
-	 * Starts page and makes server request and get response back.
+	 * Starts page and makes server request and gets response back.
 	 *
 	 * Save the response to database.
 	 */
@@ -390,7 +416,7 @@ class Manager {
 
 		$this->response = $this->process_license_form();
 
-		// Save the response to database if valid response.
+		// Save the response to database if valid response. Works only if debug is OFF.
 		if (
 			! is_wp_error( $this->response ) &&
 			is_object( $this->response ) &&
@@ -410,21 +436,22 @@ class Manager {
 				'purchased_on' => $this->response->data->createdAt,
 			);
 
-			update_option( $this->option, maybe_serialize( $value ) );
+			// Save product specific details as separate option.
+			if ( property_exists( $this->response->data, 'product_meta' ) ) {
+				$has_data = count( (array) $this->response->data->product_meta );
+				$metadata = $this->response->data->product_meta;
+
+				if ( $has_data ) {
+					update_option( $this->product_option, maybe_serialize( $metadata ) );
+				}
+			}
+
+			update_option( $this->license_option, maybe_serialize( $value ) );
+
+			// Clear site transitent so fresh request for updates made.
+			delete_site_transient( 'update_plugins' );
+			delete_site_transient( 'update_themes' );
 		}
-	}
-
-	/**
-	 * Sets REST API call method.
-	 *
-	 * @param string $method The REST API method call type.
-	 *
-	 * @return Manager
-	 */
-	public function set_method( $method ) {
-		$this->method = $method;
-
-		return $this;
 	}
 
 	/**
@@ -443,8 +470,8 @@ class Manager {
 	 *
 	 * @return string|\stdClass
 	 */
-	public function get_license( $data = '' ) {
-		$license = maybe_unserialize( get_option( $this->option, '' ) );
+	public function get_license( string $data = '' ) {
+		$license = maybe_unserialize( get_option( $this->license_option, '' ) );
 
 		if ( ! $data ) {
 			return $license;
@@ -454,11 +481,251 @@ class Manager {
 	}
 
 	/**
+	 * Expires current license.
+	 *
+	 * @return bool True on success, false otherwise.
+	 */
+	private function make_license_expire(): bool {
+		$licence = (array) maybe_unserialize( get_option( $this->license_option, array() ) );
+
+		// Check license is valid.
+		if ( ! isset( $licence['status'] ) ) {
+			return false;
+		}
+
+		$licence['status'] = 'expired';
+		$update            = (object) $licence;
+
+		update_option( $this->license_option, maybe_serialize( $update ) );
+
+		return true;
+	}
+
+	/**
+	 * Gets licensed product meta.
+	 *
+	 * These data will be used to compare/update/fetch product details.
+	 *
+	 * @param string $data The product meta data to retrieve. Possible values are:
+	 * * `logo`         The product logo (usually for plugin)
+	 * * `cover`        The product cover photo (usually for plugin)
+	 * * `bucket`       The Amazon S3 Bucket name where plugin is stored
+	 * * `version`      The product version
+	 * * `filename`     The product filename inside Amazon S3 product bucket to download
+	 * * `wp_tested`    The product WordPress tested up version
+	 * * `wp_requires`  The product WordPress minimum requirement
+	 * * `last_updated` The product last updated date.
+	 *
+	 * @return string|\stdClass
+	 */
+	public function get_product( string $data = '' ) {
+		$product = maybe_unserialize( get_option( $this->product_option, '' ) );
+
+		if ( ! $data ) {
+			return $product;
+		}
+
+		return is_object( $product ) && property_exists( $product, $data ) ? $product->{$data} : '';
+	}
+
+	/**
+	 * Handles product update.
+	 */
+	public function handle_update() {
+		$type = 'plugin' === $this->type ? 'update_plugins' : 'update_themes';
+
+		add_filter( "pre_set_site_transient_{$type}", array( $this, 'check_for_update' ), 10, 2 );
+	}
+
+	/**
+	 * Validates license with server and checks if product has any update.
+	 *
+	 * @param \stdClass $product The product meta from server response.
+	 *
+	 * @return bool True if product's new version available on server, false otherwise.
+	 */
+	private function has_update( \stdClass $product ): bool {
+		$version = $this->get_product_data()['version'];
+
+		return version_compare( $product->version, $version, '>' ) ? true : false;
+	}
+
+	/**
+	 * Gets plugin/theme update data.
+	 *
+	 * @param mixed  $value    The transient value.
+	 * @param object $response The server response.
+	 *
+	 * @return mixed
+	 */
+	private function maybe_get_update( $value, $response ) {
+		if ( 'theme' === $this->type ) {
+			$slug = wp_get_theme()->get_template();
+
+			// Prepare theme data as update value response.
+			if ( ! isset( $value->response[ $slug ] ) ) {
+				$value->response[ $slug ] = array(
+					'new_version' => $response->data->product_meta->version,
+					'package'     => $response->data->product_meta->wp_requires,
+					'url'         => $response->data->product_meta->wp_tested,
+				);
+
+				return $value;
+			}
+		}
+
+		$basename = "{$this->dirname}/{$this->filename}";
+
+		// Prepare plugin data as update value response.
+		if ( ! isset( $value->response[ $basename ] ) ) {
+			$value->response[ $basename ] = (object) array(
+				'slug'         => $basename,
+				'icons'        => array( 'default' => 'https://ps.w.org/license-manager-for-woocommerce/assets/icon-256x256.jpg?rev=2061747' ),
+				'tested'       => $response->data->product_meta->wp_tested,
+				'banners'      => array( 'default' => 'https://ps.w.org/license-manager-for-woocommerce/assets/banner-1544x500.jpg?rev=2061747' ),
+				'package'      => $response->data->product_meta->wp_requires,
+				'new_version'  => $response->data->product_meta->version,
+				'requires_php' => $response->data->product_meta->wp_requires,
+			);
+
+			return $value;
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Generates product data by product/client type.
+	 *
+	 * @return string[]
+	 */
+	private function get_product_data(): array {
+		if ( 'theme' === $this->type ) {
+			$theme = wp_get_theme();
+
+			return array(
+				'id'      => $theme->get_template(),
+				'name'    => $theme->get( 'Name' ),
+				'version' => $theme->get( 'Version' ),
+			);
+		}
+
+		if ( ! function_exists( 'get_plugin_data' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$basename = "{$this->dirname}/{$this->filename}";
+		$file     = trailingslashit( WP_PLUGIN_DIR ) . $basename;
+		$plugin   = get_plugin_data( $file, false );
+
+		return array(
+			'id'      => $basename,
+			'name'    => $plugin['Name'],
+			'version' => $plugin['Version'],
+		);
+	}
+
+	/**
+	 * Gets args for license validation.
+	 *
+	 * @param string $flag The validation flag.
+	 *
+	 * @return string[]
+	 */
+	private function get_validation_args( string $flag ): array {
+		return array(
+			'form_state' => 'validate',
+			'flag'       => $flag,
+		);
+	}
+
+	/**
+	 * Checks for update.
+	 *
+	 * @param mixed  $value     The transient value.
+	 * @param string $transient The transient name. (Requires WP 4.4 or newer).
+	 */
+	public function check_for_update( $value, $transient ) {
+		if ( ! is_object( $value ) ) {
+			$value = new \stdClass();
+		}
+
+		$id = $this->get_product_data()['id'];
+
+		// WordPress update may have already been triggered and this product update data already exist.
+		// There is no need for further processing until WordPress triggeres update again.
+		if ( ! empty( $value->response ) && ! empty( $value->response[ $id ] ) ) {
+			return $value;
+		}
+
+		/**
+		 * Making changes to this var will trigger server level error.
+		 *
+		 * Server must get proper request with the current license in client.
+		 * If server can't verify the validation state,
+		 * it will assume that client codes has been tempered with.
+		 * (in this case, that must be the end-user).
+		 *
+		 * If it is tempered, server will never send a valid response back.
+		 *
+		 * @var string[]
+		 */
+		$parameters = $this->get_validation_args( $transient );
+
+		/**
+		 * Response code:
+		 * * `200` Flag not verified.
+		 *
+		 * Response error codes:
+		 * * `400` License can not be verified.
+		 * * `401` License status can not be verified.
+		 * * `402` License is not active.
+		 * * `403` License has expired. (changes license status as expired, if not already).
+		 * * `404` Amazon S3 Region is not set.
+		 * * `405` Amazon S3 Credentials are not set.
+		 * * `406` Amazon s3 Key/filename not set.
+		 *
+		 * @var \stdClass|\WP_Error
+		 */
+		$response = $this->validate_license( $parameters );
+
+		// Response has no state defined, stop further processing.
+		if ( is_wp_error( $response ) || ! isset( $response->data->state ) ) {
+			return $value;
+		}
+
+		// Response has license state something other than active, stop further processing.
+		if ( 'active' !== $response->data->state ) {
+			// Update license option to reflect server license state.
+			if (
+				'expired' !== $this->get_license( 'status' ) &&
+				'expired' === $response->data->state
+			) {
+				$this->make_license_expire();
+			}
+
+			return $value;
+		}
+
+		// No product information, stop further processing.
+		if ( ! isset( $response->data->product_meta ) ) {
+			return $value;
+		}
+
+		// No updates available, stop further processing.
+		if ( ! $this->has_update( $response->data->product_meta ) ) {
+			return $value;
+		}
+
+		return $this->maybe_get_update( $value, $response );
+	}
+
+	/**
 	 * Shows admin notices after license activation/deactivation.
 	 *
 	 * @param bool $show_count Whether to show remaining count if greater than 1.
 	 */
-	public function show_notice( $show_count = true ) {
+	public function show_notice( bool $show_count = true ) {
 		// Nothing to notify if not a valid response or notice already sent.
 		if ( ! is_object( $this->response ) ) {
 			return;
@@ -485,13 +752,14 @@ class Manager {
 
 			// More than 1 activation possible and show count is true, show remaining notice.
 			if ( 1 < $max && $show_count ) {
-				$remain = $max - $this->response->data->timesActivated;
+				$remain    = $max - $this->response->data->timesActivated;
+				$count_msg = '&nbsp;';
 
 				/* Translators: %1$s - remaining activation count, %2$s - total activation count. */
-				$count_msg = sprintf( __( '%1$s out of %2$s activation remaining for this license', 'tws-license-manager-client' ), "<b>{$remain}</b>", "<b>{$max}</b>" );
+				$count_msg .= sprintf( __( '%1$s out of %2$s activation remaining for this license.', 'tws-license-manager-client' ), "<b>{$remain}</b>", "<b>{$max}</b>" );
 			}
 
-			$msg = sprintf( '%1$s. %2$s.', $now, $count_msg );
+			$msg = sprintf( '%1$s.%2$s', $now, $count_msg );
 		}
 
 		echo '<div class="is-dismissible notice notice-' . esc_attr( $type ) . '">' . wp_kses_post( $msg ) . '</div>';
@@ -502,7 +770,7 @@ class Manager {
 	 *
 	 * @return array
 	 */
-	public function get_parameters() {
+	public function get_parameters(): array {
 		return $this->parameters;
 	}
 
@@ -511,7 +779,7 @@ class Manager {
 	 *
 	 * @return array
 	 */
-	public function get_validated_data() {
+	public function get_validated_data(): array {
 		return $this->validated;
 	}
 
@@ -522,7 +790,7 @@ class Manager {
 	 *
 	 * @return string
 	 */
-	public function get_prefix() {
+	public function get_prefix(): string {
 		return $this->dirname;
 	}
 
@@ -533,7 +801,7 @@ class Manager {
 	 *
 	 * @return string[]
 	 */
-	public function get_errors() {
+	public function get_errors(): array {
 		return $this->errors;
 	}
 
@@ -542,7 +810,7 @@ class Manager {
 	 *
 	 * @return bool
 	 */
-	public function has_errors() {
+	public function has_errors(): bool {
 		return ! empty( $this->get_errors() );
 	}
 
@@ -578,7 +846,7 @@ class Manager {
 	 *
 	 * @return \stdClass|\WP_Error
 	 */
-	public function make_request_with( $license = true, $method = 'GET', $insert_data = array() ) {
+	public function make_request_with( bool $license = true, string $method = 'GET', array $insert_data = array() ) {
 		if ( ! $this->debug ) {
 			return new \WP_Error(
 				'debug_mode_disabled',
@@ -628,11 +896,10 @@ class Manager {
 
 		// Set properties.
 		$this->endpoint = $endpoint;
-		$this->method   = $method;
 		$this->route    = "/{$namespace}/{$version}/{$this->endpoint}";
 
 		// Get response from server with given method.
-		return $this->client->request( $this->endpoint, $this->method, $data, $this->parameters, $this->headers );
+		return $this->client->request( $this->endpoint, $method, $data, $this->parameters, $this->headers );
 	}
 
 	/**
@@ -670,7 +937,6 @@ class Manager {
 	 * -----------------
 	 * Following updates happen on server:
 	 * * ***timesActivated*** will increase/decrease by the count of `1`.
-	 * * ***status*** will be changed from `ACTIVE (denoted by "3")` to `DEACTIVE (denoted by "4")` & vice-vera.
 	 * -----------------
 	 *
 	 * @return \stdClass|\WP_Error
@@ -787,6 +1053,8 @@ class Manager {
 		$deactivate = false;
 		$status     = (string) $this->get_license( 'status' );
 		$value      = $status ? $status : __( 'Not Activated', 'tws-license-manager-client' );
+		$branding   = plugin_dir_url( __FILE__ ) . '/Assets/logo.png';
+		$logo       = (string) $this->get_product( 'logo' );
 
 		// Set form state for activating or deactivating license.
 		if ( $to_activate ) {
@@ -795,18 +1063,38 @@ class Manager {
 			$disabled   = 'active' === $status && $this->disable_form ? ' disabled=disabled' : '';
 			$deactivate = 'active' === $status ? true : $deactivate;
 			$query      = array( 'step' => 'deactivate' );
+			$state      = 'activate';
 		} else {
 			$btn_class = ' hz_lmdac_btn';
 			$button    = __( 'Deactivate', 'tws-license-manager-client' );
 			$disabled  = 'inactive' === $status && $this->disable_form ? ' disabled=disabled' : '';
+			$state     = 'deactivate';
 		}
+
+		/**
+		 * WPHOOK: Filter -> license form header.
+		 *
+		 * Modify the license form header.
+		 *
+		 * @param string[] $content The header contents. `logo` and `title`.
+		 * @param string   $prefix  The current client prefix (directory name).
+		 * @var   string[] The filtered  content.
+		 */
+		$header = apply_filters(
+			'hzfex_license_manager_client_license_form_header',
+			array(
+				'logo'  => $logo ? $logo : $branding,
+				'title' => $this->get_product_data()['name'],
+			),
+			$this->dirname
+		);
 		?>
 
 		<div id="hz_license_form">
 			<div class="hz_license_form_head">
 				<div id="hz_license_branding">
-					<div id="logo"><img src="<?php echo esc_url( plugin_dir_url( __FILE__ ) ); ?>/Assets/logo.png"></div>
-					<h2 id="tagline"><?php esc_html_e( 'The Web Solver License Manager Client', 'tws-license-manager-client' ); ?></h2>
+					<div id="logo"><img src="<?php echo esc_url( $header['logo'] ); ?>"></div>
+					<h2 id="tagline"><?php echo esc_html( $header['title'] ); ?></h2>
 				</div>
 				<div id="hz_license_status">
 					<span class="label"><?php esc_html_e( 'License Status', 'tws-license-manager-client' ); ?></span>
@@ -890,7 +1178,7 @@ class Manager {
 								<?php endif; ?>
 							</div>
 							<?php endif; ?>
-							<?php if ( is_string( $this->product_slug ) && 0 < strlen( $this->product_slug ) ) : ?>
+						<?php if ( is_string( $this->product_slug ) && 0 < strlen( $this->product_slug ) ) : ?>
 							<input type="hidden" id="<?php echo esc_attr( $this->dirname ); ?>[slug]" name="<?php echo esc_attr( $this->dirname ); ?>[slug]" type="text" value="<?php echo esc_attr( $this->product_slug ); ?>">
 							<?php endif; ?>
 					</fieldset>
@@ -905,7 +1193,7 @@ class Manager {
 					?>
 					<div id="hz_license_actions">
 						<fieldset class="hz_license_links">
-							<a class="dashboard" href="<?php echo esc_url_raw( $this->build_query_url( admin_url(), array( 'referrer' => $this->page_slug ) ) ); ?>">← <?php esc_html_e( 'Dashboard', 'tws-license-manager-client' ); ?></a>
+							<a class="dashboard" href="<?php echo esc_url_raw( add_query_arg( array( 'referrer' => $this->page_slug ), admin_url() ) ); ?>">← <?php esc_html_e( 'Dashboard', 'tws-license-manager-client' ); ?></a>
 							<?php
 							if ( ! $to_activate ) :
 								if ( 'inactive' === $status ) {
@@ -919,7 +1207,7 @@ class Manager {
 								<a class="<?php echo esc_attr( $class ); ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=' . $this->page_slug ) ); ?>"><?php echo esc_html( $text ); ?></a>
 							<?php endif; ?>
 							<?php if ( $deactivate ) : ?>
-								<a class="deactivate" href="<?php echo esc_url_raw( $this->build_query_url( false, $query ) ); ?>" class="button button-large button-next hz_btn__skip hz_btn__nav"><?php esc_html_e( 'Deactivate', 'tws-license-manager-client' ); ?></a>
+								<a class="deactivate" href="<?php echo esc_url_raw( add_query_arg( $query ) ); ?>" class="button button-large button-next hz_btn__skip hz_btn__nav"><?php esc_html_e( 'Deactivate', 'tws-license-manager-client' ); ?></a>
 							<?php endif; ?>
 						</fieldset>
 						<fieldset class="hz_license_button"<?php echo esc_attr( $disabled ); ?>>
@@ -935,25 +1223,13 @@ class Manager {
 						 */
 						?>
 						<input type="hidden" name="validate_license" value="validate_license">
-						<input type="hidden" name="tws_license_form" value="<?php echo $to_activate ? 'activate' : 'deactivate'; ?>">
+						<input type="hidden" name="tws_license_form" value="<?php echo esc_attr( $state ); ?>">
 					</fieldset>
 				</form>
 			</div>
 		</div>
 
 		<?php
-	}
-
-	/**
-	 * Gets deactivation page link.
-	 *
-	 * @param string|false $url        The URL to redirect to. If same URL then set to false.
-	 * @param array        $parameters The query parameters.
-	 *
-	 * @return string
-	 */
-	private function build_query_url( $url = false, $parameters ) {
-		return add_query_arg( $parameters, $url );
 	}
 
 	/**
@@ -1074,15 +1350,15 @@ class Manager {
 	}
 
 		/**
-		 * Fires on activation submenu page.
+		 * Fires on license form submenu page.
 		 */
 	public function loaded() {
 		/**
-		 * WPHOOK: Fires on activation submenu page.
+		 * WPHOOK: Fires on license form submenu page.
 		 *
 		 * @param Manager $client Current instance of license manager client.
 		 */
-		do_action( $this->dirname . '_activation_page_loaded', $this );
+		do_action( $this->dirname . '_license_page_loaded', $this );
 	}
 
 	/**
@@ -1100,8 +1376,8 @@ class Manager {
 	 * @return string
 	 */
 	private function parse_url( $domain ) {
-		$domain = \wp_parse_url( $domain, PHP_URL_HOST );
-		$domain = \ltrim( $domain, 'www.' );
+		$domain = wp_parse_url( $domain, PHP_URL_HOST );
+		$domain = ltrim( $domain, 'www.' );
 
 		return sanitize_key( $domain );
 	}
