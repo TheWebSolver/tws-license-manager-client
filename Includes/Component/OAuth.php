@@ -17,7 +17,7 @@
  * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\License_Manager\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\Component;
 
 /**
  * The Web Solver Licence Manager Client OAuth Authentication class.

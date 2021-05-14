@@ -17,8 +17,8 @@
 	],
 	"autoload": {
 		"psr-4": {
-			"TheWebSolver\\License_Manager\\REST_API\\": [
-				"REST_API"
+			"TheWebSolver\\License_Manager\\": [
+				"Includes"
 			]
 		}
 	}

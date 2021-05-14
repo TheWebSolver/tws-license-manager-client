@@ -17,9 +17,9 @@
  * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\License_Manager\REST_API;
+namespace TheWebSolver\License_Manager\API;
 
-use TheWebSolver\License_Manager\REST_API\HttpClient\Http_Client;
+use TheWebSolver\License_Manager\Component\Http_Client;
 
 /**
  * Handles Client.
