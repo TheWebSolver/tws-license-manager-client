@@ -18,7 +18,7 @@ function test_client_manager() {
 			'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 			'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
 			'order_id'    => __( 'Enter same/valid purchase order ID.', 'tws-license-manager-client' ),
-			'name'        => 'WooCommerce Attributes',
+			'slug'        => 'my-plugin-with-license-manager-client',
 		)
 	)
 	->set_keys(
@@ -108,7 +108,7 @@ public function start() {
 			'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 			'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
 			'order_id'    => __( 'Enter same/valid purchase order ID.', 'tws-license-manager-client' ),
-			'name'        => 'WooCommerce Attributes',
+			'slug'        => 'my-plugin-with-license-manager-client',
 		)
 	)
 	->set_keys(
@@ -133,7 +133,7 @@ Lets breakdown the above code in steps:
 
 #### Validation
 
-- First, `Client_Plugin_License_Handler::$manager::set_validation()` keys with their respective error message. Default supported validation keys are `email`, `order_id` and `name`. `license_key` is optional but it is highly recommended to add here for showing validation error.
+- First, `Client_Plugin_License_Handler::$manager::set_validation()` keys with their respective error message. Default supported validation keys are `email`, `order_id` and `slug`. `license_key` is optional but it is highly recommended to add here for showing validation error.
   - **Validation Keys** will set/unset the respective license form field. Let's say, `order_id` was not set, then **_Purchase Order ID_** field won't be displayed on license form as well as it will not be checked on the server also whether the license key was actually for that Order ID.
   - **Validation Error** is for displaying an error message of the respective field if that field is left empty after activate/deactivate button is clicked. _It will not be used for server error_. For server error, check it [here](https://github.com/thewebsolver/tws-license-manager-client/blob/master/SERVER.md#validation)
 
@@ -258,7 +258,7 @@ class Client_Plugin {
 				'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 				'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
 				'order_id'    => __( 'Enter same/valid purchase order ID.', 'tws-license-manager-client' ),
-				'name'        => 'WooCommerce Attributes',
+				'slug'        => 'my-plugin-with-license-manager-client',
 			)
 		)
 		->set_keys(

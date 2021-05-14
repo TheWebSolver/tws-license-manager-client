@@ -269,18 +269,18 @@ final class Manager {
 	private function is_valid_request( $license, $parameters, $client_url ) {
 		$metadata = array();
 
-		// Product name didn't match with WooCommerce Product Title, $request => WP_Error.
-		if ( \array_key_exists( 'name', $parameters ) ) {
+		// Product slug didn't match with WooCommerce Product Title, $request => WP_Error.
+		if ( \array_key_exists( 'slug', $parameters ) ) {
 			$product = \wc_get_product( $license->getProductId() );
-			$msg     = isset( $this->validation_data['name'] )
-			? $this->validation_data['name']
+			$msg     = isset( $this->validation_data['slug'] )
+			? $this->validation_data['slug']
 			: 'Product not found.';
 
 			$error = $this->request_error( $msg, 404 );
 
 			if (
 				! ( $product instanceof \WC_Product ) ||
-				$parameters['name'] !== $product->get_name()
+				$parameters['slug'] !== $product->get_slug()
 			) {
 				return $error;
 			}
