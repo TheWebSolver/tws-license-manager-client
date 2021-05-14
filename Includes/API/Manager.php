@@ -1053,7 +1053,7 @@ class Manager {
 		$deactivate = false;
 		$status     = (string) $this->get_license( 'status' );
 		$value      = $status ? $status : __( 'Not Activated', 'tws-license-manager-client' );
-		$branding   = plugin_dir_url( __FILE__ ) . '/Assets/logo.png';
+		$branding   = plugin_dir_url( $this->root() ) . '/Assets/logo.png';
 		$logo       = (string) $this->get_product( 'logo' );
 
 		// Set form state for activating or deactivating license.
@@ -1365,7 +1365,7 @@ class Manager {
 	 * Enqueues necessary styles and scripts.
 	 */
 	public function enqueue_scripts() {
-		wp_enqueue_style( $this->dirname . '-style', plugin_dir_url( __FILE__ ) . '/Assets/style.css', array(), self::VERSION );
+		wp_enqueue_style( $this->dirname . '-style', plugin_dir_url( $this->root() ) . '/Assets/style.css', array(), self::VERSION );
 	}
 
 	/**
@@ -1439,5 +1439,14 @@ class Manager {
 	 */
 	public function options( $endpoint ) {
 		return $this->client->request( $endpoint, 'OPTIONS', array(), array() );
+	}
+
+	/**
+	 * Gets root directory name.
+	 *
+	 * @return string
+	 */
+	public function root(): string {
+		return dirname( __FILE__, 2 );
 	}
 }
