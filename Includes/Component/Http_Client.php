@@ -17,9 +17,9 @@
  * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\License_Manager\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\Component;
 
-use TheWebSolver\License_Manager\REST_API\Manager;
+use TheWebSolver\License_Manager\API\Manager;
 
 /**
  * The Web Solver Licence Manager Client HTTP Client class.
@@ -199,7 +199,7 @@ class Http_Client {
 	 */
 	protected function authenticate( $parameters = array() ) {
 		$auth = $this->is_ssl()
-			? new BasicAuth( $this, $parameters )
+			? new Basic_Auth( $this, $parameters )
 			: new OAuth( $this, $parameters );
 
 		return $auth->get_parameters();

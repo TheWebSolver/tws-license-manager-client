@@ -17,12 +17,12 @@
  * ╚═╝      ╚═╝    ═══════════════╝
  */
 
-namespace TheWebSolver\License_Manager\REST_API\HttpClient;
+namespace TheWebSolver\License_Manager\Component;
 
 /**
  * The Web Solver Licence Manager Client Basic Authentication class.
  */
-class BasicAuth {
+class Basic_Auth {
 	/**
 	 * The cURL handle.
 	 *
