@@ -21,6 +21,23 @@
 	--error: #ce0000;
 	--white: #fff;
 	--light: #eae9e9;
+	--warning: #ff8300;
+	--shadow-normal: rgba(152, 185, 227, 0.15);
+	--shadow-primary: rgba(0, 150, 136, 0.15);
+	--shadow-warning: rgba(255, 131, 0, 0.15);
+	--shadow-error: rgba(206, 0, 0, 0.15);
+}
+body {
+	background-color: var(--shadow-normal);
+}
+body.active {
+	background-color: var(--shadow-primary);
+}
+body.inactive {
+	background-color: var(--shadow-warning);
+}
+body.expired {
+	background-color: var(--shadow-error);
 }
 .notice {
 	padding-top: 10px;
@@ -104,6 +121,14 @@
 #hz_license_status .value.active {
 	color: var(--primary-color);
 	border-color: var(--primary-color);
+}
+#hz_license_status .value.inactive {
+	color: var(--warning);
+	border-color: var(--warning);
+}
+#hz_license_status .value.expired {
+	color: var(--error);
+	border-color: var(--error);
 }
 
 .hz_license_links {
