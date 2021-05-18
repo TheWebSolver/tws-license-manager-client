@@ -495,14 +495,12 @@ class Manager {
 	 * * `id`           The product ID
 	 * * `logo`         The product logo (usually for plugin)
 	 * * `cover`        The product cover photo (usually for plugin)
-	 * * `bucket`       The Amazon S3 Bucket name where plugin is stored
 	 * * `version`      The product version
-	 * * `filename`     The product filename inside Amazon S3 product bucket to download
 	 * * `wp_tested`    The product WordPress tested up version
 	 * * `wp_requires`  The product WordPress minimum requirement
 	 * * `last_updated` The product last updated date.
 	 *
-	 * @return string|\stdClass
+	 * @return string|array|\stdClass
 	 */
 	public function get_product( string $data = '' ) {
 		$product = maybe_unserialize( get_option( $this->product_option, '' ) );
@@ -526,34 +524,33 @@ class Manager {
 	/**
 	 * Validates license with server and checks if product has any update.
 	 *
-	 * @param \stdClass $product The product meta from server response.
+	 * @param string $new_version The product version from server response.
 	 *
 	 * @return bool True if product's new version available on server, false otherwise.
 	 */
-	private function has_update( \stdClass $product ): bool {
+	private function has_update( string $new_version ): bool {
 		$version = $this->get_product_data()['version'];
 
-		return version_compare( $product->version, $version, '>' ) ? true : false;
+		return version_compare( $new_version, $version, '>' ) ? true : false;
 	}
 
 	/**
 	 * Gets plugin/theme update data.
 	 *
-	 * @param mixed  $value    The transient value.
-	 * @param object $response The server response.
+	 * @param mixed  $value The transient value.
+	 * @param object $meta  The server response product metadata.
+	 * @param string $package The update package URL.
 	 *
 	 * @return mixed
 	 */
-	private function maybe_get_update( $value, $response ) {
+	private function maybe_get_update( $value, $meta, $package ) {
 		if ( 'theme' === $this->type ) {
 			$slug = wp_get_theme()->get_template();
 
-			// Prepare theme data as update value response.
+			// Prepare theme data as update value response. TODO: add later.
 			if ( ! isset( $value->response[ $slug ] ) ) {
 				$value->response[ $slug ] = array(
-					'new_version' => $response->data->product_meta->version,
-					'package'     => $response->data->product_meta->wp_requires,
-					'url'         => $response->data->product_meta->wp_tested,
+					'new_version' => $meta->version,
 				);
 
 				return $value;
@@ -561,25 +558,55 @@ class Manager {
 		}
 
 		$basename = "{$this->dirname}/{$this->filename}";
-		$logos    = $response->data->product_meta->logo;
-		$covers   = $response->data->product_meta->cover;
-		$icons    = is_array( $logos ) ? $logos : array( 'default' => $logos );
-		$banners  = is_array( $covers ) ? $covers : array( 'default' => $covers );
 
 		// Prepare plugin data as update value response.
 		if ( ! isset( $value->response[ $basename ] ) ) {
-			$value->response[ $basename ] = (object) array(
-				'id'           => $basename,
-				'slug'         => $this->dirname,
-				'plugin'       => $basename,
-				'new_version'  => $response->data->product_meta->version,
-				'url'          => esc_url( "{$this->server_url}/{$this->product_slug}" ),
-				'package'      => $response->data->product_meta->wp_requires,
-				'icons'        => $icons,
-				'banners'      => $banners,
-				'tested'       => $response->data->product_meta->wp_tested,
-				'requires_php' => $response->data->product_meta->wp_requires,
-			);
+			$plugin              = new \stdClass();
+			$plugin->id          = $basename;
+			$plugin->slug        = $this->dirname;
+			$plugin->plugin      = $basename;
+			$plugin->url         = esc_url( "{$this->server_url}/{$this->product_slug}" );
+			$plugin->new_version = $meta->version;
+			$plugin->package     = $package;
+
+			// Prepare confirmed meta as plugin update args.
+
+			if ( isset( $meta->logo ) ) {
+				/**
+				 * The file extensions for icons (except "svg") can be jpg, png, gif.
+				 * However, use same extension for all combination.
+				 * Possible array keys for icons are:
+				 * array(
+				 *  'svg'     => 'http://imageurl/icon.svg,
+				 *  '1x'      => 'http://imageurl/icon-size-with-128x128-px.png,
+				 *  '2x'      => 'http://imageurl/icon-size-with-256x256-px.png,
+				 * );
+				 */
+				$plugin->icons = (array) $meta->logo;
+			}
+
+			if ( isset( $meta->cover ) ) {
+				/**
+				 * The file extensions for banners can be jpg, png.
+				 * However, use same extension for all combination.
+				 * Possible array keys for icons are:
+				 * array(
+				 *  '1x'      => 'http://imageurl/banner-size-with-772x250-px.png,
+				 *  '2x'      => 'http://imageurl/banner-size-with-1544x500-px.png,
+				 * );
+				 */
+				$plugin->banners = (array) $meta->cover;
+			}
+
+			if ( isset( $meta->wp_tested ) ) {
+				$plugin->tested = $meta->wp_tested;
+			}
+
+			if ( isset( $meta->wp_requires ) ) {
+				$plugin->requires_php = $meta->wp_requires;
+			}
+
+			$value->response[ $basename ] = $plugin;
 
 			return $value;
 		}
@@ -700,17 +727,19 @@ class Manager {
 			return $value;
 		}
 
-		// No product information, stop further processing.
-		if ( ! isset( $response->data->product_meta ) ) {
+		$meta = $response->data->product_meta;
+
+		// No product version or download package, stop further processing.
+		if ( ! isset( $meta->version, $response->data->package ) ) {
 			return $value;
 		}
 
 		// No updates available, stop further processing.
-		if ( ! $this->has_update( $response->data->product_meta ) ) {
+		if ( ! $this->has_update( $meta->version ) ) {
 			return $value;
 		}
 
-		return $this->maybe_get_update( $value, $response );
+		return $this->maybe_get_update( $value, $meta, $response->data->package );
 	}
 
 	/**
@@ -1050,7 +1079,8 @@ class Manager {
 		$status     = (string) $this->get_license( 'status' );
 		$value      = $status ? $status : __( 'Not Activated', 'tws-license-manager-client' );
 		$branding   = plugin_dir_url( $this->root() ) . '/Assets/logo.png';
-		$logo       = (string) $this->get_product( 'logo' );
+		$logo       = (array) $this->get_product( 'logo' );
+		$logo       = array_shift( $logo );
 
 		// Set form state for activating or deactivating license.
 		if ( $to_activate ) {
@@ -1390,7 +1420,7 @@ class Manager {
 	 */
 	private function parse_url( $domain ) {
 		$domain = wp_parse_url( $domain, PHP_URL_HOST );
-		$domain = ltrim( $domain, 'www.' );
+		$domain = str_replace( 'www.', '', $domain );
 
 		return sanitize_key( $domain );
 	}
@@ -1550,6 +1580,7 @@ class Manager {
 			$value = array(
 				'key'          => $response->data->key,
 				'status'       => $response->data->state,
+				'order_id'     => $response->data->orderId,
 				'expires_at'   => $response->data->expiresAt,
 				'active_count' => $response->data->timesActivated,
 				'total_count'  => $response->data->timesActivatedMax,
@@ -1559,10 +1590,6 @@ class Manager {
 
 			if ( isset( $response->data->email ) ) {
 				$value['email'] = $response->data->email;
-			}
-
-			if ( isset( $response->data->orderId ) ) {
-				$value['order_id'] = $response->data->orderId;
 			}
 
 			// Save product specific details as separate option.
