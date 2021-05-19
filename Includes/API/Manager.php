@@ -235,6 +235,17 @@ class Manager {
 	private $server_url;
 
 	/**
+	 * Whether to cache product update data.
+	 *
+	 * Defaults are:
+	 * * `0` `bool` `true` - cache is enabled.
+	 * * `1` `int`  `2`    - total hours after which cache is flushed.
+	 *
+	 * @var array
+	 */
+	private $cache_product_data = array( true, 2 );
+
+	/**
 	 * Sets client directory, main file name and parent menu to hook license form submenu page.
 	 *
 	 * @param string $dirname     Required. The client directory name. This will be used as prefix.
@@ -399,6 +410,21 @@ class Manager {
 	}
 
 	/**
+	 * Sets updating caching system.
+	 *
+	 * @param bool $enable Whether to enable cache or not.
+	 * @param int  $hours  Number of hours to save the cache.
+	 *                     It has no effect if `$enable` is `false`.
+	 *
+	 * @return Manager
+	 */
+	public function cache_product_data( bool $enable = true, int $hours = 2 ): Manager {
+		$this->cache_product_data = array( $enable, $hours );
+
+		return $this;
+	}
+
+	/**
 	 * Starts page and makes server request and gets response back.
 	 *
 	 * Save the response to database.
@@ -495,14 +521,12 @@ class Manager {
 	 * * `id`           The product ID
 	 * * `logo`         The product logo (usually for plugin)
 	 * * `cover`        The product cover photo (usually for plugin)
-	 * * `bucket`       The Amazon S3 Bucket name where plugin is stored
 	 * * `version`      The product version
-	 * * `filename`     The product filename inside Amazon S3 product bucket to download
 	 * * `wp_tested`    The product WordPress tested up version
 	 * * `wp_requires`  The product WordPress minimum requirement
 	 * * `last_updated` The product last updated date.
 	 *
-	 * @return string|\stdClass
+	 * @return string|string[]|\stdClass
 	 */
 	public function get_product( string $data = '' ) {
 		$product = maybe_unserialize( get_option( $this->product_option, '' ) );
@@ -512,6 +536,160 @@ class Manager {
 		}
 
 		return is_object( $product ) && isset( $product->{$data} ) ? $product->{$data} : '';
+	}
+
+	/**
+	 * Gets cached product data from database.
+	 *
+	 * @return \stdClass|false False if invalid data or cache expired.
+	 */
+	private function get_product_data_from_cache() {
+		global $pagenow;
+
+		// Current page is an update page. Lets not use cached data.
+		if ( 'update-core.php' === $pagenow ) {
+			return false;
+		}
+
+		$data = get_transient( "cached_{$this->product_option}" );
+
+		return $data;
+	}
+
+	/**
+	 * Saves product data to database.
+	 *
+	 * By default data is saved in a cache for 2 hours before making another server request.
+	 *
+	 * @param \stdClass|false $data The product data to save.
+	 */
+	private function save_product_data_to_cache( $data ) {
+		if ( ! $data ) {
+			return;
+		}
+
+		$hours = absint( $this->cache_product_data[1] );
+		set_transient( "cached_{$this->product_option}", $data, HOUR_IN_SECONDS * $hours );
+	}
+
+	/**
+	 * Fetches product data from server.
+	 *
+	 * @param string $flag The validation flag.
+	 *
+	 * @return \stdClass|false False if bad response.
+	 */
+	private function fetch_product_data_from_server( string $flag = '' ) {
+		/**
+		 * Making changes to this var will trigger server level error.
+		 *
+		 * Server must get proper request with the current license in client.
+		 * If server can't verify the validation state,
+		 * it will assume that client codes has been tempered with.
+		 * (in this case, that must be the end-user).
+		 *
+		 * If it is tempered, server will never send a valid response back.
+		 *
+		 * Response code:
+		 * * `200` Flag not verified.
+		 *
+		 * Response error codes:
+		 * * `400` License can not be verified.
+		 * * `401` License status can not be verified.
+		 * * `402` License is not active.
+		 * * `403` License has expired. (changes license status as expired, if not already).
+		 * * `404` Amazon S3 Region is not set.
+		 * * `405` Amazon S3 Credentials are not set.
+		 * * `406` Amazon s3 Key/filename not set.
+		 *
+		 * @var \stdClass|\WP_Error
+		 */
+		$response = $this->validate_license( $this->get_validation_args( $flag ) );
+
+		// Response has no state defined, data => invalid.
+		if ( is_wp_error( $response ) || ! isset( $response->data->state ) ) {
+			return false;
+		}
+
+		// Response has license state something other than active, data => invalid.
+		if ( 'active' !== $response->data->state ) {
+			// License expired on server, save that change in client too.
+			if ( 'expired' !== $this->get_license( 'status' ) && 'expired' === $response->data->state ) {
+				$this->make_license_expire();
+			}
+
+			return false;
+		}
+
+		$product_data = $response->data->product_meta;
+
+		// .zip file for update.
+		if ( '' !== $response->data->package ) {
+			$product_data->package = $response->data->package;
+		}
+
+		/**
+		 * The file extensions for icons (except "svg") can be jpg, png, gif.
+		 * However, use same extension for all combination.
+		 * Possible array keys for icons are:
+		 * ```
+		 * array(
+		 *  'svg' => 'http://imageurl/icon.svg',
+		 *  '1x'  => 'http://imageurl/icon-size-with-128x128-px.png',
+		 *  '2x'  => 'http://imageurl/icon-size-with-256x256-px.png',
+		 * );
+		 * ```
+		 *
+		 * @var string[]
+		 */
+		$logo = isset( $product_data->logo ) ? (array) $product_data->logo : array();
+
+		/**
+		 * The file extensions for banners can be jpg, png.
+		 * However, use same extension for all combination.
+		 * Possible array keys for icons are:
+		 * ```
+		 * array(
+		 *  '1x' => 'http://imageurl/banner-size-with-772x250-px.png',
+		 *  '2x' => 'http://imageurl/banner-size-with-1544x500-px.png',
+		 * );
+		 * ```
+		 *
+		 * @var string[]
+		 */
+		$cover = isset( $product_data->cover ) ? (array) $product_data->cover : array();
+
+		$content = isset( $product_data->content ) ? (array) $product_data->content : array();
+
+		$product_data->logo    = $logo;
+		$product_data->cover   = $cover;
+		$product_data->content = $content;
+
+		return $product_data;
+	}
+
+	/**
+	 * Gets product info either from cache or server.
+	 *
+	 * @param string $flag The flag.
+	 *
+	 * @return \stdClass|false — False if invalid data.
+	 */
+	private function get_product_info( string $flag = '' ) {
+		// Caching disabled, always make server request.
+		if ( ! $this->cache_product_data[0] ) {
+			return $this->fetch_product_data_from_server( $flag );
+		}
+
+		$data = $this->get_product_data_from_cache();
+
+		// Cache not set, expired, invalid data, etc. Send request to server to fetch new data.
+		if ( false === $data ) {
+			$data = $this->fetch_product_data_from_server( $flag );
+			$this->save_product_data_to_cache( $data );
+		}
+
+		return $data;
 	}
 
 	/**
@@ -526,63 +704,63 @@ class Manager {
 	/**
 	 * Validates license with server and checks if product has any update.
 	 *
-	 * @param \stdClass $product The product meta from server response.
+	 * @param string $new_version The product version from server response.
+	 * @param string $old_version The product version currently installed.
 	 *
 	 * @return bool True if product's new version available on server, false otherwise.
 	 */
-	private function has_update( \stdClass $product ): bool {
-		$version = $this->get_product_data()['version'];
-
-		return version_compare( $product->version, $version, '>' ) ? true : false;
+	private function has_update( string $new_version, string $old_version ): bool {
+		return version_compare( $new_version, $old_version, '>' ) ? true : false;
 	}
 
 	/**
 	 * Gets plugin/theme update data.
 	 *
-	 * @param mixed  $value    The transient value.
-	 * @param object $response The server response.
+	 * @param string $id    The product ID.
+	 * @param mixed  $value The transient value.
+	 * @param object $meta  The new product metadata.
 	 *
 	 * @return mixed
 	 */
-	private function maybe_get_update( $value, $response ) {
+	private function maybe_get_update( $id, $value, $meta ) {
 		if ( 'theme' === $this->type ) {
-			$slug = wp_get_theme()->get_template();
-
-			// Prepare theme data as update value response.
-			if ( ! isset( $value->response[ $slug ] ) ) {
-				$value->response[ $slug ] = array(
-					'new_version' => $response->data->product_meta->version,
-					'package'     => $response->data->product_meta->wp_requires,
-					'url'         => $response->data->product_meta->wp_tested,
+			// Prepare theme data as update value response. TODO: add later.
+			if ( ! isset( $value->response[ $id ] ) ) {
+				$value->response[ $id ] = array(
+					'new_version' => $meta->version,
 				);
 
 				return $value;
 			}
 		}
 
-		$basename = "{$this->dirname}/{$this->filename}";
-		$logos    = $response->data->product_meta->logo;
-		$covers   = $response->data->product_meta->cover;
-		$icons    = is_array( $logos ) ? $logos : array( 'default' => $logos );
-		$banners  = is_array( $covers ) ? $covers : array( 'default' => $covers );
+		$plugin              = new \stdClass();
+		$plugin->id          = $id;
+		$plugin->slug        = $this->dirname;
+		$plugin->plugin      = $id;
+		$plugin->url         = esc_url( "{$this->server_url}/{$this->product_slug}" );
+		$plugin->new_version = $meta->version;
+		$plugin->package     = $meta->package;
+		$plugin->icons       = $meta->logo;
+		$plugin->banners     = $meta->cover;
+
+		if ( isset( $meta->wp_tested ) ) {
+			$plugin->tested = $meta->wp_tested;
+		}
+
+		if ( isset( $meta->wp_requires ) ) {
+			$plugin->requires_php = $meta->wp_requires;
+		}
 
 		// Prepare plugin data as update value response.
-		if ( ! isset( $value->response[ $basename ] ) ) {
-			$value->response[ $basename ] = (object) array(
-				'id'           => $basename,
-				'slug'         => $this->dirname,
-				'plugin'       => $basename,
-				'new_version'  => $response->data->product_meta->version,
-				'url'          => esc_url( "{$this->server_url}/{$this->product_slug}" ),
-				'package'      => $response->data->product_meta->wp_requires,
-				'icons'        => $icons,
-				'banners'      => $banners,
-				'tested'       => $response->data->product_meta->wp_tested,
-				'requires_php' => $response->data->product_meta->wp_requires,
-			);
+		if ( isset( $meta->package ) ) {
+			$value->response[ $id ] = $plugin;
 
 			return $value;
 		}
+
+		// Set product with no package as no update.
+		$value->no_update[ $id ] = $plugin;
 
 		return $value;
 	}
@@ -600,6 +778,7 @@ class Manager {
 				'id'      => $theme->get_template(),
 				'name'    => $theme->get( 'Name' ),
 				'version' => $theme->get( 'Version' ),
+				'page'    => 'themes.php',
 			);
 		}
 
@@ -615,6 +794,7 @@ class Manager {
 			'id'      => $basename,
 			'name'    => $plugin['Name'],
 			'version' => $plugin['Version'],
+			'page'    => 'plugins.php',
 		);
 	}
 
@@ -643,7 +823,15 @@ class Manager {
 			$value = new \stdClass();
 		}
 
-		$id = $this->get_product_data()['id'];
+		$data = $this->get_product_data();
+		$id   = $data['id'];
+
+		global $pagenow;
+
+		// Do not trigger updates on themes or plugins page.
+		if ( $data['page'] === $pagenow && is_multisite() ) {
+			return $value;
+		}
 
 		// WordPress update may have already been triggered and this product update data already exist.
 		// There is no need for further processing until WordPress triggeres update again.
@@ -651,66 +839,19 @@ class Manager {
 			return $value;
 		}
 
-		/**
-		 * Making changes to this var will trigger server level error.
-		 *
-		 * Server must get proper request with the current license in client.
-		 * If server can't verify the validation state,
-		 * it will assume that client codes has been tempered with.
-		 * (in this case, that must be the end-user).
-		 *
-		 * If it is tempered, server will never send a valid response back.
-		 *
-		 * @var string[]
-		 */
-		$parameters = $this->get_validation_args( $transient );
+		$product = $this->get_product_info( $transient );
 
-		/**
-		 * Response code:
-		 * * `200` Flag not verified.
-		 *
-		 * Response error codes:
-		 * * `400` License can not be verified.
-		 * * `401` License status can not be verified.
-		 * * `402` License is not active.
-		 * * `403` License has expired. (changes license status as expired, if not already).
-		 * * `404` Amazon S3 Region is not set.
-		 * * `405` Amazon S3 Credentials are not set.
-		 * * `406` Amazon s3 Key/filename not set.
-		 *
-		 * @var \stdClass|\WP_Error
-		 */
-		$response = $this->validate_license( $parameters );
-
-		// Response has no state defined, stop further processing.
-		if ( is_wp_error( $response ) || ! isset( $response->data->state ) ) {
+		// Product invalid or no product version, update => invalid.
+		if ( ! is_object( $product ) || ! isset( $product->version ) ) {
 			return $value;
 		}
 
-		// Response has license state something other than active, stop further processing.
-		if ( 'active' !== $response->data->state ) {
-			// Update license option to reflect server license state.
-			if (
-				'expired' !== $this->get_license( 'status' ) &&
-				'expired' === $response->data->state
-			) {
-				$this->make_license_expire();
-			}
-
+		// No updates available, update => invalid.
+		if ( ! $this->has_update( $product->version, $data['version'] ) ) {
 			return $value;
 		}
 
-		// No product information, stop further processing.
-		if ( ! isset( $response->data->product_meta ) ) {
-			return $value;
-		}
-
-		// No updates available, stop further processing.
-		if ( ! $this->has_update( $response->data->product_meta ) ) {
-			return $value;
-		}
-
-		return $this->maybe_get_update( $value, $response );
+		return $this->maybe_get_update( $id, $value, $product );
 	}
 
 	/**
@@ -1050,7 +1191,8 @@ class Manager {
 		$status     = (string) $this->get_license( 'status' );
 		$value      = $status ? $status : __( 'Not Activated', 'tws-license-manager-client' );
 		$branding   = plugin_dir_url( $this->root() ) . '/Assets/logo.png';
-		$logo       = (string) $this->get_product( 'logo' );
+		$logo       = $this->get_product( 'logo' );
+		$logo       = is_array( $logo ) && 0 < count( $logo ) ? (string) array_shift( $logo ) : '';
 
 		// Set form state for activating or deactivating license.
 		if ( $to_activate ) {
@@ -1390,7 +1532,7 @@ class Manager {
 	 */
 	private function parse_url( $domain ) {
 		$domain = wp_parse_url( $domain, PHP_URL_HOST );
-		$domain = ltrim( $domain, 'www.' );
+		$domain = str_replace( 'www.', '', $domain );
 
 		return sanitize_key( $domain );
 	}
@@ -1550,6 +1692,7 @@ class Manager {
 			$value = array(
 				'key'          => $response->data->key,
 				'status'       => $response->data->state,
+				'order_id'     => $response->data->orderId,
 				'expires_at'   => $response->data->expiresAt,
 				'active_count' => $response->data->timesActivated,
 				'total_count'  => $response->data->timesActivatedMax,
@@ -1559,10 +1702,6 @@ class Manager {
 
 			if ( isset( $response->data->email ) ) {
 				$value['email'] = $response->data->email;
-			}
-
-			if ( isset( $response->data->orderId ) ) {
-				$value['order_id'] = $response->data->orderId;
 			}
 
 			// Save product specific details as separate option.
