@@ -439,7 +439,7 @@ class Manager {
 		// Lets prettify the license form.
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
 
-		$this->step = isset( $_GET['step'] ) ? sanitize_key( wp_unslash( $_GET['step'] ) ) : '';
+		$this->step = isset( $_GET['step'] ) && 'expired' !== (string) $this->get_license( 'status' ) ? sanitize_key( wp_unslash( $_GET['step'] ) ) : '';
 
 		// Bail if license form not submitted yet.
 		if ( ! isset( $_POST['validate_license'] ) || 'validate_license' !== $_POST['validate_license'] ) {
@@ -673,7 +673,7 @@ class Manager {
 	 *
 	 * @param string $flag The flag.
 	 *
-	 * @return \stdClass|false — False if invalid data.
+	 * @return \stdClass|false False if invalid data.
 	 */
 	private function get_product_info( string $flag = '' ) {
 		// Caching disabled, always make server request.
@@ -768,18 +768,26 @@ class Manager {
 	/**
 	 * Generates product data by product/client type.
 	 *
-	 * @return string[]
+	 * @param string $key The specific product data value. Possible keys are:
+	 * * `string` `id`      - The product data ID (`theme_dir` or `plugin_dir/plugin_file.php`).
+	 * * `string` `name`    - The product name (theme name or plugin name).
+	 * * `string` `version` - The product currently installed version.
+	 * * `string` `page`    - The product (themes.php/plugins.php) admin page.
+	 *
+	 * @return string|string[] Data in an array if key not given, else value for the key.
 	 */
-	private function get_product_data(): array {
+	private function get_product_data( string $key = '' ) {
 		if ( 'theme' === $this->type ) {
 			$theme = wp_get_theme();
 
-			return array(
+			$data = array(
 				'id'      => $theme->get_template(),
 				'name'    => $theme->get( 'Name' ),
 				'version' => $theme->get( 'Version' ),
 				'page'    => 'themes.php',
 			);
+
+			return $key ? $data[ $key ] : $data;
 		}
 
 		if ( ! function_exists( 'get_plugin_data' ) ) {
@@ -790,12 +798,14 @@ class Manager {
 		$file     = trailingslashit( WP_PLUGIN_DIR ) . $basename;
 		$plugin   = get_plugin_data( $file, false );
 
-		return array(
+		$data = array(
 			'id'      => $basename,
 			'name'    => $plugin['Name'],
 			'version' => $plugin['Version'],
 			'page'    => 'plugins.php',
 		);
+
+		return $key ? $data[ $key ] : $data;
 	}
 
 	/**
@@ -828,7 +838,7 @@ class Manager {
 
 		global $pagenow;
 
-		// Do not trigger updates on themes or plugins page.
+		// Do not trigger updates on themes or plugins page on a multisite.
 		if ( $data['page'] === $pagenow && is_multisite() ) {
 			return $value;
 		}
@@ -897,6 +907,37 @@ class Manager {
 		}
 
 		echo '<div class="is-dismissible notice notice-' . esc_attr( $type ) . '">' . wp_kses_post( $msg ) . '</div>';
+	}
+
+	/**
+	 * Shows persistent admin notice if license has never been activated.
+	 */
+	public function is_not_activated_notice() {
+		// Bail if the current product's license page.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( isset( $_GET['page'] ) && $this->page_slug === $_GET['page'] ) {
+			return;
+		}
+
+		$status = array( 'active', 'inactive', 'expired' );
+
+		// Bail if already performed one of these events for product license.
+		if ( in_array( $this->get_license( 'status' ), $status, true ) ) {
+			return;
+		}
+
+		$name = $this->get_product_data( 'name' );
+
+		echo wp_kses_post(
+			sprintf(
+				'<div class="notice notice-warning">%1$s %2$s %3$s. <p><a href="%4$s" class="button button-primary">%5$s</a></p></div>',
+				__( 'Activate license for', 'tws-license-manager-client' ),
+				'<b>' . $name . '</b>',
+				__( 'to receive automatic updates and support', 'tws-license-manager-client' ),
+				esc_url( admin_url( "admin.php?page={$this->page_slug}" ) ),
+				__( 'Activate Now', 'tws-license-manager-client' )
+			)
+		);
 	}
 
 	/**
@@ -1222,22 +1263,14 @@ class Manager {
 			'hzfex_license_manager_client_license_form_header',
 			array(
 				'logo'  => $logo ? $logo : $branding,
-				'title' => $this->get_product_data()['name'],
+				'title' => $this->get_product_data( 'name' ),
 			),
 			$this->dirname
 		);
 
-		/**
-		 * WPHOOK: Filter -> display expired status message with renewal link.
-		 *
-		 * @param bool   $enable  Whether to enable expired license message or not.
-		 * @param string $license The license key.
-		 * @var   bool
-		 */
-		$show = apply_filters( 'hzfex_license_manager_expired_license_notice', true, $this->get_license( 'license_key' ) );
-
 		// Expired license Alert!!!
-		$url = $this->get_renewal_link();
+		$url           = $this->get_renewal_link();
+		$content_class = 'expired' === $status || $disabled ? ' disabled' : '';
 		?>
 
 		<div id="hz_license_form" class="<?php echo sanitize_key( $value ); ?>">
@@ -1250,15 +1283,39 @@ class Manager {
 					<span class="label"><?php esc_html_e( 'License Status', 'tws-license-manager-client' ); ?></span>
 					<span class="value <?php echo sanitize_key( $value ); ?>"><?php echo esc_html( $value ); ?></span>
 				</div>
-				<?php if ( $show && $url && 'expired' === $status ) : ?>
-					<div class="hz_expired_notice">
-						<a href="<?php echo esc_url_raw( $url ); ?>" class="button button-primary">
-							<?php esc_html_e( 'The license has expired. Renew your license in few minutes.', 'tws-license-manager-clinet' ); ?>
-						</a>
-					</div>
-				<?php endif; ?>
 			</div>
-			<div class="hz_license_form_content">
+			<?php
+			/**
+			 * Below event occurs if filters are not applied to vars
+			 * and server has renewal feature turned on from setting.
+			 *
+			 * When the license expires, a new notice will be displayed with below content.
+			 * The notice will have a renewal link which when clicked will take user to
+			 * the server checkout page with the product for which license key was issued
+			 * added to the cart automatically.
+			 *
+			 * The renewal link contains product ID, license key and client URL.
+			 *
+			 * License key will be saved in cookie for 10 minutes so user will have enough time
+			 * to login and place order. The cookie will be used as the value for "existing license
+			 * key" checkout field. After valid order status change is triggered, the license
+			 * expiry date will be extended by the same number of days in the license generator
+			 * that was used to generate license (generator must be set on product level).
+			 */
+			if ( $url && 'expired' === $status ) :
+				?>
+				<div class="hz_expired_notice">
+					<p>
+						<?php esc_html_e( 'The license has expired. Renew your license in few minutes', 'tws-license-manager-client' ); ?>
+					</p>
+					<p>
+						<a href="<?php echo esc_url_raw( $url ); ?>">
+							<?php esc_html_e( 'Renew Now', 'tws-license-manager-client' ); ?>
+						</a>
+					</p>
+				</div>
+			<?php endif; ?>
+			<div class="hz_license_form_content<?php echo esc_attr( $content_class ); ?>">
 				<form method="POST">
 					<?php
 						/**
@@ -1280,13 +1337,29 @@ class Manager {
 						$error = $this->errors['license_key'];
 						$class = 'field_error';
 					}
-					?>
+
+					/**
+					 * When license expires, new checkbox (toggle) is displayed.
+					 * Input fields and submit button will be disabled by default.
+					 *
+					 * When checkbox (toggle) is turned on, fields are re-enabled
+					 * for user to enter data on respective fields and submit the form
+					 * so activation happens with renewed/new license key.
+					 */
+					if ( 'expired' === $status ) :
+						$disabled = ' disabled=disabled';
+						?>
+						<fieldset class="enableForm hz_switcher_control">
+							<label for="enableForm"><?php esc_html_e( 'Got a valid license? Turn on the toggle to activate it.', 'tws-license-manager-client' ); ?></label>
+							<input id="enableForm" type="checkbox" class="hz_switcher_control">
+						</fieldset>
+					<?php endif; ?>
 
 					<fieldset id="hz_activate_plugin"<?php echo esc_attr( $disabled ); ?>>
 						<div class="hz_license_key <?php echo esc_attr( $class ); ?>">
 							<label for="<?php echo esc_attr( $this->dirname ); ?>[license_key]">
 								<p class="label"><?php esc_html_e( 'License Key', 'tws-license-manager-client' ); ?></p>
-								<p class="field"><input id="<?php echo esc_attr( $this->dirname ); ?>[license_key]" name="<?php echo esc_attr( $this->dirname ); ?>[license_key]" type="text" value="<?php echo esc_attr( $license_key ); ?>"></p>
+								<p class="field"><input id="<?php echo esc_attr( $this->dirname ); ?>[license_key]" name="<?php echo esc_attr( $this->dirname ); ?>[license_key]" type="text" value="<?php echo 'expired' !== $status ? esc_attr( $license_key ) : ''; ?>"></p>
 							</label>
 
 							<?php if ( $error ) : ?>
@@ -1306,7 +1379,7 @@ class Manager {
 							<div class="hz_license_email <?php echo esc_attr( $email_class ); ?>">
 								<label for="<?php echo esc_attr( $for ); ?>">
 									<p class="label"><?php esc_html_e( 'Email used for purchase', 'tws-license-manager-client' ); ?></p>
-									<p class="field"><input id="<?php echo esc_attr( $for ); ?>" name="<?php echo esc_attr( $for ); ?>" type="text" value="<?php echo esc_attr( $email ); ?>"></p>
+									<p class="field"><input id="<?php echo esc_attr( $for ); ?>" name="<?php echo esc_attr( $for ); ?>" type="text" value="<?php echo 'expired' !== $status ? esc_attr( $email ) : ''; ?>"></p>
 								</label>
 
 								<?php if ( $email_error ) : ?>
@@ -1327,7 +1400,7 @@ class Manager {
 							<div class="hz_license_order_id <?php echo esc_attr( $order_class ); ?>">
 								<label for="<?php echo esc_attr( $for ); ?>">
 									<p class="label"><?php esc_html_e( 'Purchase Order ID', 'tws-license-manager-client' ); ?></p>
-									<p class="field"><input id="<?php echo esc_attr( $for ); ?>" name="<?php echo esc_attr( $for ); ?>" type="text" value="<?php echo esc_attr( $order_id ); ?>"></p>
+									<p class="field"><input id="<?php echo esc_attr( $for ); ?>" name="<?php echo esc_attr( $for ); ?>" type="text" value="<?php echo 'expired' !== $status ? esc_attr( $order_id ) : ''; ?>"></p>
 								</label>
 
 								<?php if ( $order_error ) : ?>
@@ -1376,13 +1449,35 @@ class Manager {
 						/**
 						 * Without this hidden input field, save function call will not trigger.
 						 *
-						 * {@see @method Wizard::start()}
+						 * {@see @method Manager::start()}
 						 */
 						?>
 						<input type="hidden" name="validate_license" value="validate_license">
 						<input type="hidden" name="tws_license_form" value="<?php echo esc_attr( $state ); ?>">
 					</fieldset>
 				</form>
+				<?php if ( 'expired' === $status ) : ?>
+					<script type="text/javascript">
+						var btn = jQuery('#enableForm');
+						var formWrapper    = jQuery('.hz_license_form_content');
+						var activateFields = jQuery('#hz_activate_plugin');
+						var activateAction = jQuery('.hz_license_button');
+						var isEnabled = () => {
+							if( jQuery(btn).is(':checked')) {
+								jQuery(activateFields).removeProp('disabled');
+								jQuery(activateAction).removeProp('disabled');
+								jQuery(formWrapper).removeClass('disabled');
+							} else {
+								jQuery(activateFields).attr('disabled', 'disabled');
+								jQuery(activateAction).attr('disabled', 'disabled');
+								jQuery(formWrapper).addClass('disabled');
+							}
+						};
+
+						isEnabled();
+						jQuery('#enableForm').on('click', isEnabled);
+					</script>
+				<?php endif; ?>
 			</div>
 		</div>
 
@@ -1634,6 +1729,8 @@ class Manager {
 
 	/**
 	 * Product renewal link.
+	 *
+	 * Filter can be used to return an empty string which in turns disables license renewal notice.
 	 *
 	 * Following events occur on server:
 	 * * Licensed product is added on server cart,
