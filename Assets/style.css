@@ -63,7 +63,7 @@ body.expired {
 	border-radius: 5px;
 	overflow: hidden;
 }
-.hz_license_form_content.expired {
+.hz_license_form_content.disabled {
 	background-color: var(--light-gray);
 }
 #hz_activate_plugin {
@@ -193,11 +193,11 @@ fieldset:disabled input.hz_btn__prim:disabled {
 	cursor: not-allowed;
 }
 .hz_license_form_content,
-fieldset[disabled="disabled"] input,
+fieldset input,
 .hz_license_button input.hz_lmac_btn,
 .hz_license_button input.hz_lmdac_btn,
 .hz_expired_notice a {
-	transition: background-color 0.4s ease-in-out;
+	transition: background-color 0.4s ease-in-out !important;
 }
 .hz_expired_notice {
 	padding: 10px 20px 20px;
