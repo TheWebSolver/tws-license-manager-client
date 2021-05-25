@@ -436,6 +436,22 @@ class Manager {
 			return;
 		}
 
+		/**
+		 * Make a new server request when license expired to sync the license status, then reload.
+		 *
+		 * NOTE:
+		 * This is an important event which needs to trigger for this whole thing to work
+		 * when a license expires but server has not yet synced the license status.
+		 *
+		 * @see @method Manager::parse_response()
+		 */
+		if ( isset( $_GET['license_status'] ) && 'expired' === $_GET['license_status'] ) {
+			$this->check_license_status();
+
+			wp_safe_redirect( admin_url( "admin.php?page={$this->page_slug}" ) );
+			exit;
+		}
+
 		// Lets prettify the license form.
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
 
@@ -494,14 +510,26 @@ class Manager {
 	/**
 	 * Expires current license.
 	 *
+	 * @param string $date The expiry date to update.
+	 *
 	 * @return bool True on success, false otherwise.
 	 */
-	private function make_license_expire(): bool {
+	private function make_license_expire( string $date = '' ): bool {
 		$licence = (array) maybe_unserialize( get_option( $this->license_option, array() ) );
 
 		// Check license is valid.
 		if ( ! isset( $licence['status'] ) ) {
 			return false;
+		}
+
+		if ( $date ) {
+			$expiry_date   = \DateTime::createFromFormat( 'Y-m-d H:i:s', $date );
+			$is_valid_date = $expiry_date && $expiry_date->format( 'Y-m-d H:i:s' ) === $date;
+
+			// Given date is a valid date (format) used on server, update expiry date too.
+			if ( $is_valid_date ) {
+				$licence['expires_at'] = $date;
+			}
 		}
 
 		$licence['status'] = 'expired';
@@ -1306,7 +1334,7 @@ class Manager {
 				?>
 				<div class="hz_expired_notice">
 					<p>
-						<?php esc_html_e( 'The license has expired. Renew your license in few minutes', 'tws-license-manager-client' ); ?>
+						<?php esc_html_e( 'The license has expired. Renew your license in few minutes!', 'tws-license-manager-client' ); ?>
 					</p>
 					<p>
 						<a href="<?php echo esc_url_raw( $url ); ?>">
@@ -1779,13 +1807,53 @@ class Manager {
 	 * @param \stdClass|\WP_Error $response The server response.
 	 */
 	private function parse_response( $response ) {
-		if (
-			! is_wp_error( $response ) &&
-			is_object( $response ) &&
-			isset( $response->success ) &&
-			$response->success &&
-			! $this->debug
-		) {
+		// Prevent executions on debug mode.
+		if ( $this->debug ) {
+			return;
+		}
+
+		if ( is_wp_error( $response ) ) {
+			// Response is an error with the license expired message, then update the license status.
+			// This is triggered when license expired and attempted to activate/deactivate license.
+			if ( 'lmfwc_rest_license_expired' === $response->get_error_code() ) {
+				$message = $response->get_error_message( 'lmfwc_rest_license_expired' );
+				$message = str_replace( 'The license Key expired on ', '', $message );
+				$message = substr( $message, 0, strpos( $message, '(' ) );
+				$date    = rtrim( $message );
+
+				// Save expired status and expiry date to database.
+				if ( 'expired' !== $this->get_license( 'status' ) ) {
+					$this->make_license_expire( $date );
+				}
+
+				/**
+				 * License has expired at this stage. Reload page with expiration args.
+				 *
+				 * NOTE:
+				 * This is an important event which needs to trigger for this whole thing to work
+				 * when a license expires but server has not yet synced the license status.
+				 *
+				 * @see @method Manager::start()
+				 */
+				wp_safe_redirect(
+					add_query_arg(
+						array(
+							'license_status' => 'expired',
+							'expired_at'     => $date,
+						)
+					)
+				);
+				exit;
+			}
+
+			// Prevent further execution when response is an error.
+			return;
+		}
+
+		// Response has success set, $response => valid.
+		$valid_response = isset( $response->success ) && $response->success;
+
+		if ( is_object( $response ) && $valid_response ) {
 			$value = array(
 				'key'          => $response->data->key,
 				'status'       => $response->data->state,
@@ -1831,6 +1899,9 @@ class Manager {
 			// Clear site transitent so fresh request for updates made.
 			delete_site_transient( 'update_plugins' );
 			delete_site_transient( 'update_themes' );
+
+			// Delete product update transient.
+			delete_transient( "cached_{$this->product_option}" );
 		}
 	}
 
