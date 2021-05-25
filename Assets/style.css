@@ -224,6 +224,7 @@ fieldset input,
 	background-color: var(--shadow-warning);
 }
 fieldset.hz_switcher_control {
+	font-weight: bold;
 	position: relative;
 	margin: -20px -20px auto;
 	padding: 20px;
