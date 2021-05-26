@@ -3,7 +3,7 @@
 
 <p align="center">
   <a href="https://github.com/TheWebSolver/tws-license-manager-client">
-    <img src="REST_API/Assets/logo.png" alt="Logo" width="80" height="80">
+    <img src="Assets/logo.png" alt="Logo" width="80" height="80">
   </a>
 </p>
 
@@ -30,9 +30,8 @@ $ composer install
 [License Manager for WooCommerce][server-plugin] must be installed and activated on server WordPress installation for this client to interact, validate, activate/deactivate license.
 
 ## Example Codes:
-- Server docs on [License Manager][server-docs].
+- Server docs on [License Manager][server-docs] and [Server Manager][server-manager].
 - [CLIENT.md](https://github.com/thewebsolver/tws-license-manager-client/blob/master/CLIENT.md) contains all the codes that will intialize license manager client, add submenu page to display activation/deactivation form and get response back from license manager server when valid data are submitted.
-- [SERVER.md](https://github.com/thewebsolver/tws-license-manager-client/blob/master/SERVER.md) contains all codes that will validate the request from client site and activate the license.
 
 ## In brief, you must make changes to codes shown in `CLIENT.md` file:
 - Set server URL `Client_Plugin::SERVER_URL` where your license manager server is ([License Manager for WooCommerce][server-plugin] plugin is installed, and activated),
@@ -66,3 +65,4 @@ DEVELOPED-MAINTAINED-SUPPPORTED BY
 [linkedin-url]: https://www.linkedin.com/in/sheshgh/
 [server-plugin]: https://wordpress.org/plugins/license-manager-for-woocommerce/
 [server-docs]: https://www.licensemanager.at/docs/
+[server-manager]: https://github.com/TheWebSolver/tws-license-manager-server
