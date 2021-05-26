@@ -425,31 +425,110 @@ class Manager {
 	}
 
 	/**
-	 * Starts page and makes server request and gets response back.
+	 * Deletes WordPress update and product transitents.
+	 */
+	private function purge_cache() {
+		// Clear site transitent so fresh request for updates made.
+		delete_site_transient( 'update_plugins' );
+		delete_site_transient( 'update_themes' );
+
+		// Delete product update transient.
+		delete_transient( "cached_{$this->product_option}" );
+	}
+
+	/**
+	 * Saves response to database.
 	 *
-	 * Save the response to database.
+	 * Only does this when debug is OFF.
+	 *
+	 * @param \stdClass $response The server response.
+	 */
+	private function parse_response( $response ) {
+		// Prevent executions on debug mode.
+		if ( $this->debug ) {
+			return;
+		}
+
+		if ( is_object( $response ) && isset( $response->success ) && $response->success ) {
+			$value = array(
+				'key'          => $response->data->key,
+				'status'       => $response->data->state,
+				'order_id'     => $response->data->orderId,
+				'expires_at'   => $response->data->expiresAt,
+				'active_count' => $response->data->timesActivated,
+				'total_count'  => $response->data->timesActivatedMax,
+				'license_key'  => $response->data->licenseKey,
+				'purchased_on' => $response->data->createdAt,
+			);
+
+			if ( isset( $response->data->email ) ) {
+				$value['email'] = $response->data->email;
+			}
+
+			// Save product specific details as separate option.
+			if ( isset( $response->data->product_meta ) ) {
+				$metadata = $response->data->product_meta;
+
+				update_option( $this->product_option, maybe_serialize( $metadata ), false );
+			}
+
+			/**
+			 * WPHOOK: Filter -> for license value to be saved before license.
+			 *
+			 * @param object $value    The value being saved.
+			 * @param object $response The response from the server.
+			 * @param string $prefix   The product prefix.
+			 * @var   object
+			 */
+			$save = (object) apply_filters(
+				'hzfex_license_manager_client_pre_save_license',
+				$value,
+				$response,
+				$this->dirname
+			);
+
+			update_option( $this->license_option, maybe_serialize( $save ), false );
+
+			$this->purge_cache();
+		}
+	}
+
+	/**
+	 * Checks if license has expired for the given data.
+	 *
+	 * This will only ever be used if license is activated/deactivated
+	 * using license form but the license has already been expired.
+	 *
+	 * @param \WP_Error $data The data as WP_Error.
+	 *
+	 * @return bool True if expired, false otherwise.
+	 */
+	private function has_license_expired( \WP_Error $data ): bool {
+		if ( 'lmfwc_rest_license_expired' === $data->get_error_code() ) {
+			$message = $data->get_error_message( 'lmfwc_rest_license_expired' );
+			$message = str_replace( 'The license Key expired on ', '', $message );
+			$message = substr( $message, 0, strpos( $message, '(' ) );
+			$date    = rtrim( $message );
+
+			// Save expired status and expiry date to database.
+			if ( 'expired' !== $this->get_license( 'status' ) ) {
+				$this->make_license_expire( $date );
+			}
+
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Performs task for events happening on current product's license page.
 	 */
 	public function start() {
 		// Bail if not license page.
 		// phpcs:disable WordPress.Security.NonceVerification
 		if ( ! isset( $_GET['page'] ) || $this->page_slug !== $_GET['page'] ) {
 			return;
-		}
-
-		/**
-		 * Make a new server request when license expired to sync the license status, then reload.
-		 *
-		 * NOTE:
-		 * This is an important event which needs to trigger for this whole thing to work
-		 * when a license expires but server has not yet synced the license status.
-		 *
-		 * @see @method Manager::parse_response()
-		 */
-		if ( isset( $_GET['license_status'] ) && 'expired' === $_GET['license_status'] ) {
-			$this->check_license_status();
-
-			wp_safe_redirect( admin_url( "admin.php?page={$this->page_slug}" ) );
-			exit;
 		}
 
 		// Lets prettify the license form.
@@ -463,7 +542,7 @@ class Manager {
 		}
 		// phpcs:enable
 
-		// API Namespace is a must. if it is not given, then error is triggered. Stop processing further.
+		// API Namespace is a must. It's an error if not given. Stop processing further.
 		if ( $this->client->has_error() ) {
 			$this->response = $this->client->get_error();
 
@@ -477,6 +556,12 @@ class Manager {
 		}
 
 		$this->response = $this->process_license_form();
+
+		if ( is_wp_error( $this->response ) ) {
+			$this->has_license_expired( $this->response );
+
+			return;
+		}
 
 		$this->parse_response( $this->response );
 	}
@@ -1800,119 +1885,13 @@ class Manager {
 	}
 
 	/**
-	 * Saves response to database.
-	 *
-	 * Only does this when debug is OFF.
-	 *
-	 * @param \stdClass|\WP_Error $response The server response.
-	 */
-	private function parse_response( $response ) {
-		// Prevent executions on debug mode.
-		if ( $this->debug ) {
-			return;
-		}
-
-		if ( is_wp_error( $response ) ) {
-			// Response is an error with the license expired message, then update the license status.
-			// This is triggered when license expired and attempted to activate/deactivate license.
-			if ( 'lmfwc_rest_license_expired' === $response->get_error_code() ) {
-				$message = $response->get_error_message( 'lmfwc_rest_license_expired' );
-				$message = str_replace( 'The license Key expired on ', '', $message );
-				$message = substr( $message, 0, strpos( $message, '(' ) );
-				$date    = rtrim( $message );
-
-				// Save expired status and expiry date to database.
-				if ( 'expired' !== $this->get_license( 'status' ) ) {
-					$this->make_license_expire( $date );
-				}
-
-				/**
-				 * License has expired at this stage. Reload page with expiration args.
-				 *
-				 * NOTE:
-				 * This is an important event which needs to trigger for this whole thing to work
-				 * when a license expires but server has not yet synced the license status.
-				 *
-				 * @see @method Manager::start()
-				 */
-				wp_safe_redirect(
-					add_query_arg(
-						array(
-							'license_status' => 'expired',
-							'expired_at'     => $date,
-						)
-					)
-				);
-				exit;
-			}
-
-			// Prevent further execution when response is an error.
-			return;
-		}
-
-		// Response has success set, $response => valid.
-		$valid_response = isset( $response->success ) && $response->success;
-
-		if ( is_object( $response ) && $valid_response ) {
-			$value = array(
-				'key'          => $response->data->key,
-				'status'       => $response->data->state,
-				'order_id'     => $response->data->orderId,
-				'expires_at'   => $response->data->expiresAt,
-				'active_count' => $response->data->timesActivated,
-				'total_count'  => $response->data->timesActivatedMax,
-				'license_key'  => $response->data->licenseKey,
-				'purchased_on' => $response->data->createdAt,
-			);
-
-			if ( isset( $response->data->email ) ) {
-				$value['email'] = $response->data->email;
-			}
-
-			// Save product specific details as separate option.
-			if ( isset( $response->data->product_meta ) ) {
-				$has_data = count( (array) $response->data->product_meta );
-				$metadata = $response->data->product_meta;
-
-				if ( $has_data ) {
-					update_option( $this->product_option, maybe_serialize( $metadata ), false );
-				}
-			}
-
-			/**
-			 * WPHOOK: Filter -> for license value to be saved before license.
-			 *
-			 * @param object $value    The value being saved.
-			 * @param object $response The response from the server.
-			 * @param string $prefix   The product prefix.
-			 * @var   object
-			 */
-			$save = (object) apply_filters(
-				'hzfex_license_manager_client_pre_save_license',
-				$value,
-				$response,
-				$this->dirname
-			);
-
-			update_option( $this->license_option, maybe_serialize( $save ), false );
-
-			// Clear site transitent so fresh request for updates made.
-			delete_site_transient( 'update_plugins' );
-			delete_site_transient( 'update_themes' );
-
-			// Delete product update transient.
-			delete_transient( "cached_{$this->product_option}" );
-		}
-	}
-
-	/**
 	 * Checks license status on scheduled time.
-	 *
-	 * Only make server request if license key already saved on client.
 	 */
 	public function check_license_status() {
-		if ( $this->get_license( 'license_key' ) ) {
-			$this->parse_response( $this->validate_license( $this->get_validation_args( 'cron' ) ) );
+		$response = $this->validate_license( $this->get_validation_args( 'cron' ) );
+
+		if ( ! is_wp_error( $response ) ) {
+			$this->parse_response( $response );
 		}
 	}
 
