@@ -13,7 +13,7 @@ function test_client_manager() {
 	// replace parameters with your own.
 	$manager = new Manager( 'my-plugin-folder-name', 'my-plugin-main-file-name.php' );
 
-	$manager->set_validation(
+	$manager->validate_with(
 		array(
 			'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 			'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
@@ -21,7 +21,7 @@ function test_client_manager() {
 			'slug'        => 'my-plugin-with-license-manager-client',
 		)
 	)
-	->set_keys(
+	->authenticate_with(
 		'ck_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // replace with consumer key.
 		'cs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // replace with consumer secret.
 	)
@@ -103,7 +103,7 @@ Let's breakdown the above code into steps:
 
 ```php
 public function start() {
-	$this->manager->set_validation(
+	$this->manager->validate_with(
 		array(
 			'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 			'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
@@ -111,7 +111,7 @@ public function start() {
 			'slug'        => 'my-plugin-with-license-manager-client',
 		)
 	)
-	->set_keys(
+	->authenticate_with(
 		'ck_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 		'cs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 	)
@@ -133,13 +133,13 @@ Lets breakdown the above code in steps:
 
 #### Validation
 
-- First, `Client_Plugin_License_Handler::$manager::set_validation()` keys with their respective error message. Default supported validation keys are `email`, `order_id` and `slug`. `license_key` is optional but it is highly recommended to add here for showing validation error.
+- First, `Client_Plugin_License_Handler::$manager::validate_with()` keys with their respective error message. Default supported validation keys are `email`, `order_id` and `slug`. `license_key` is optional but it is highly recommended to add here for showing validation error.
   - **Validation Keys** will set/unset the respective license form field. Let's say, `order_id` was not set, then **_Purchase Order ID_** field won't be displayed on license form as well as it will not be checked on the server also whether the license key was actually for that Order ID.
   - **Validation Error** is for displaying an error message of the respective field if that field is left empty after activate/deactivate button is clicked. _It will not be used for server error_. For server error, check it [here](https://github.com/thewebsolver/tws-license-manager-client/blob/master/SERVER.md#validation)
 
 #### Validation Keys
 
-- Second, `Client_Plugin_License_Handler::$manager::set_keys()` is self explanatory. Set the consumer key and consumer secret that has been generated on the server for the user with the capabilities to handle the server. Usually user with `manage_options` capability.
+- Second, `Client_Plugin_License_Handler::$manager::authenticate_with()` is self explanatory. Set the consumer key and consumer secret that has been generated on the server for the user with the capabilities to handle the server. Usually user with `manage_options` capability.
 
 #### Connection Details
 
@@ -253,7 +253,7 @@ class Client_Plugin {
 	 */
 	public function start() {
 		$this->manager
-		->set_validation(
+		->validate_with(
 			array(
 				'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
 				'email'       => __( 'Enter valid/same email address used at the time of purchase.', 'tws-license-manager-client' ),
@@ -261,7 +261,7 @@ class Client_Plugin {
 				'slug'        => 'my-plugin-with-license-manager-client',
 			)
 		)
-		->set_keys(
+		->authenticate_with(
 			'ck_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 			'cs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 		)
