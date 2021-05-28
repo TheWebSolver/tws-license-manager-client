@@ -24,7 +24,7 @@ use TheWebSolver\License_Manager\Component\Http_Client;
 /**
  * Handles Client.
  */
-class Manager {
+final class Manager {
 	/**
 	 * The Web Solver License Manager Client Manager version.
 	 */
@@ -285,9 +285,13 @@ class Manager {
 	 * The possible types are: `plugin` or `theme`.
 	 *
 	 * @param string $type The product type.
+	 *
+	 * @return Manager
 	 */
-	public function set_type( string $type = 'plugin' ) {
+	public function set_type( string $type = 'plugin' ): Manager {
 		$this->type = $type;
+
+		return $this;
 	}
 
 	/**
@@ -298,7 +302,7 @@ class Manager {
 	 *
 	 * @return Manager
 	 */
-	public function set_keys( string $key, string $secret ): Manager {
+	public function authenticate_with( string $key, string $secret ): Manager {
 		$this->consumer_key    = $key;
 		$this->consumer_secret = $secret;
 
@@ -308,10 +312,16 @@ class Manager {
 	/**
 	 * Sets API URL parameters.
 	 *
+	 * Any additional parameters to pass along with request.
+	 *
 	 * @param array $parameters API URL parameters.
+	 *
+	 * @return Manager
 	 */
-	public function set_parameters( array $parameters ) {
+	public function query_with( array $parameters ): Manager {
 		$this->parameters = $parameters;
+
+		return $this;
 	}
 
 	/**
@@ -328,7 +338,7 @@ class Manager {
 	 * @example usage
 	 * ```
 	 * // Check license key, email address, order ID, purchased plugin/theme slug on server and show respective error messages when activating/deactivating license on client.
-	 * Manager::set_validation(
+	 * Manager::validate_with(
 	 *  array(
 	 *   // REQUIRED: End user must input license key in form field. Shows client error if field is blank.
 	 *   'license_key' => __( 'Enter a valid license key.', 'tws-license-manager-client' ),
@@ -345,7 +355,7 @@ class Manager {
 	 * );
 	 * ```
 	 */
-	public function set_validation( array $data = array() ): Manager {
+	public function validate_with( array $data = array() ): Manager {
 		$this->to_validate = $data;
 
 		// Set the product slug on server if used for validation.
@@ -425,14 +435,13 @@ class Manager {
 	}
 
 	/**
-	 * Deletes WordPress update and product transitents.
+	 * Deletes WordPress update transitent and product info transitents.
 	 */
 	private function purge_cache() {
 		// Clear site transitent so fresh request for updates made.
-		delete_site_transient( 'update_plugins' );
-		delete_site_transient( 'update_themes' );
+		delete_site_transient( "update_{$this->type}s" );
 
-		// Delete product update transient.
+		// Delete product details transient.
 		delete_transient( "cached_{$this->product_option}" );
 	}
 
@@ -450,46 +459,21 @@ class Manager {
 		}
 
 		if ( is_object( $response ) && isset( $response->success ) && $response->success ) {
-			$value = array(
-				'key'          => $response->data->key,
-				'status'       => $response->data->state,
-				'order_id'     => $response->data->orderId,
-				'expires_at'   => $response->data->expiresAt,
-				'active_count' => $response->data->timesActivated,
-				'total_count'  => $response->data->timesActivatedMax,
-				'license_key'  => $response->data->licenseKey,
-				'purchased_on' => $response->data->createdAt,
-			);
-
-			if ( isset( $response->data->email ) ) {
-				$value['email'] = $response->data->email;
-			}
-
-			// Save product specific details as separate option.
-			if ( isset( $response->data->product_meta ) ) {
-				$metadata = $response->data->product_meta;
-
-				update_option( $this->product_option, maybe_serialize( $metadata ), false );
-			}
-
-			/**
-			 * WPHOOK: Filter -> for license value to be saved before license.
-			 *
-			 * @param object $value    The value being saved.
-			 * @param object $response The response from the server.
-			 * @param string $prefix   The product prefix.
-			 * @var   object
-			 */
-			$save = (object) apply_filters(
-				'hzfex_license_manager_client_pre_save_license',
-				$value,
-				$response,
-				$this->dirname
-			);
-
-			update_option( $this->license_option, maybe_serialize( $save ), false );
-
 			$this->purge_cache();
+
+			// phpcs:disable
+			$details = (array) $response->data;
+
+			if ( isset( $details['product_meta'] ) ) {
+				$data = (object) $details['product_meta'];
+
+				$this->save_product_data_to_cache( $data );
+
+				// Clear product details before saving license details.
+				unset( $details['product_meta'] );
+			}
+
+			update_option( $this->license_option, maybe_serialize( (object) $details ), false );
 		}
 	}
 
@@ -534,6 +518,7 @@ class Manager {
 		// Lets prettify the license form.
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
 
+		// Steps must not work if license has expired.
 		$this->step = isset( $_GET['step'] ) && 'expired' !== (string) $this->get_license( 'status' ) ? sanitize_key( wp_unslash( $_GET['step'] ) ) : '';
 
 		// Bail if license form not submitted yet.
@@ -575,6 +560,7 @@ class Manager {
 	 * * `status`       - The license current active/inactive status
 	 * * `order_id`     - The WooCommerce order ID for which license is generated on server
 	 * * `expires_at`   - The license expiration date
+	 * * `product_id`   - The license assigned product ID.
 	 * * `total_count`  - Total number of times license key can be activated
 	 * * `active_count` - Number of times license key has been activated
 	 * * `license_key`  - The product license key
@@ -626,32 +612,6 @@ class Manager {
 	}
 
 	/**
-	 * Gets licensed product meta.
-	 *
-	 * These data will be used to compare/update/fetch product details.
-	 *
-	 * @param string $data The product meta data to retrieve. Possible values are:
-	 * * `id`           The product ID
-	 * * `logo`         The product logo (usually for plugin)
-	 * * `cover`        The product cover photo (usually for plugin)
-	 * * `version`      The product version
-	 * * `wp_tested`    The product WordPress tested up version
-	 * * `wp_requires`  The product WordPress minimum requirement
-	 * * `last_updated` The product last updated date.
-	 *
-	 * @return string|string[]|\stdClass
-	 */
-	public function get_product( string $data = '' ) {
-		$product = maybe_unserialize( get_option( $this->product_option, '' ) );
-
-		if ( ! $data ) {
-			return $product;
-		}
-
-		return is_object( $product ) && isset( $product->{$data} ) ? $product->{$data} : '';
-	}
-
-	/**
 	 * Gets cached product data from database.
 	 *
 	 * @return \stdClass|false False if invalid data or cache expired.
@@ -664,9 +624,7 @@ class Manager {
 			return false;
 		}
 
-		$data = get_transient( "cached_{$this->product_option}" );
-
-		return $data;
+		return get_transient( "cached_{$this->product_option}" );
 	}
 
 	/**
@@ -692,7 +650,7 @@ class Manager {
 	 *
 	 * @return \stdClass|false False if bad response.
 	 */
-	private function fetch_product_data_from_server( string $flag = '' ) {
+	private function fetch_product_data_from_server( string $flag ) {
 		/**
 		 * Making changes to this var will trigger server level error.
 		 *
@@ -711,34 +669,21 @@ class Manager {
 		 * * `401` License status can not be verified.
 		 * * `402` License is not active.
 		 * * `403` License has expired. (changes license status as expired, if not already).
-		 * * `404` Amazon S3 Region is not set.
-		 * * `405` Amazon S3 Credentials are not set.
-		 * * `406` Amazon s3 Key/filename not set.
 		 *
 		 * @var \stdClass|\WP_Error
 		 */
 		$response = $this->validate_license( $this->get_validation_args( $flag ) );
 
 		// Response has no state defined, data => invalid.
-		if ( is_wp_error( $response ) || ! isset( $response->data->state ) ) {
-			return false;
-		}
-
-		// Response has license state something other than active, data => invalid.
-		if ( 'active' !== $response->data->state ) {
-			// License expired on server, save that change in client too.
-			if ( 'expired' !== $this->get_license( 'status' ) && 'expired' === $response->data->state ) {
-				$this->make_license_expire();
-			}
-
+		if ( is_wp_error( $response ) || ! isset( $response->data->state ) || ! isset( $response->data->product_meta ) ) {
 			return false;
 		}
 
 		$product_data = $response->data->product_meta;
 
-		// .zip file for update.
-		if ( '' !== $response->data->package ) {
-			$product_data->package = $response->data->package;
+		// License expired on server, save that change in client too.
+		if ( 'expired' !== $this->get_license( 'status' ) && 'expired' === $response->data->state ) {
+			$this->make_license_expire( $response->data->expiresAt );
 		}
 
 		/**
@@ -809,9 +754,7 @@ class Manager {
 	 * Handles product update.
 	 */
 	public function handle_update() {
-		$type = 'plugin' === $this->type ? 'update_plugins' : 'update_themes';
-
-		add_filter( "pre_set_site_transient_{$type}", array( $this, 'check_for_update' ), 10, 2 );
+		add_filter( "pre_set_site_transient_update_{$this->type}s", array( $this, 'check_for_update' ), 10, 2 );
 	}
 
 	/**
@@ -853,7 +796,6 @@ class Manager {
 		$plugin->plugin      = $id;
 		$plugin->url         = esc_url( "{$this->server_url}/{$this->product_slug}" );
 		$plugin->new_version = $meta->version;
-		$plugin->package     = $meta->package;
 		$plugin->icons       = $meta->logo;
 		$plugin->banners     = $meta->cover;
 
@@ -865,15 +807,12 @@ class Manager {
 			$plugin->requires_php = $meta->wp_requires;
 		}
 
-		// Prepare plugin data as update value response.
+		// Package comes with meta, set that for update.
 		if ( isset( $meta->package ) ) {
-			$value->response[ $id ] = $plugin;
-
-			return $value;
+			$plugin->package = $meta->package;
 		}
 
-		// Set product with no package as no update.
-		$value->no_update[ $id ] = $plugin;
+		$value->response[ $id ] = $plugin;
 
 		return $value;
 	}
@@ -995,11 +934,11 @@ class Manager {
 			$msg = $this->response->get_error_message();
 		}
 
-		if ( isset( $this->response->data->state ) ) {
+		if ( isset( $this->response->data->status ) ) {
 			$type   = 'success';
-			$status = strtoupper( $this->response->data->state );
-			$key    = $this->response->data->licenseKey;
-			$max    = $this->response->data->timesActivatedMax;
+			$status = strtoupper( $this->response->data->status );
+			$key    = $this->response->data->license_key;
+			$max    = $this->response->data->total_count;
 
 			// Presistent message.
 			/* Translators: %1$s - License Key, %2$s - Current license status. */
@@ -1009,7 +948,7 @@ class Manager {
 
 			// More than 1 activation possible and show count is true, show remaining notice.
 			if ( 1 < $max && $show_count ) {
-				$remain    = $max - $this->response->data->timesActivated;
+				$remain    = $max - $this->response->data->active_count;
 				$count_msg = '&nbsp;';
 
 				/* Translators: %1$s - remaining activation count, %2$s - total activation count. */
@@ -1338,15 +1277,13 @@ class Manager {
 	 *
 	 * @param bool $to_activate License form to be shown on activation or deactivation page.
 	 */
-	protected function show_license_form( $to_activate = true ) {
+	private function show_license_form( $to_activate = true ) {
 		// Form states.
 		$query      = array();
 		$deactivate = false;
 		$status     = (string) $this->get_license( 'status' );
 		$value      = $status ? $status : __( 'Not Activated', 'tws-license-manager-client' );
-		$branding   = plugin_dir_url( $this->root() ) . '/Assets/logo.png';
-		$logo       = $this->get_product( 'logo' );
-		$logo       = is_array( $logo ) && 0 < count( $logo ) ? (string) array_shift( $logo ) : '';
+		$logo       = plugin_dir_url( $this->root() ) . '/Assets/logo.png';
 
 		// Set form state for activating or deactivating license.
 		if ( $to_activate ) {
@@ -1375,7 +1312,7 @@ class Manager {
 		$header = apply_filters(
 			'hzfex_license_manager_client_license_form_header',
 			array(
-				'logo'  => $logo ? $logo : $branding,
+				'logo'  => $logo,
 				'title' => $this->get_product_data( 'name' ),
 			),
 			$this->dirname
@@ -1854,7 +1791,7 @@ class Manager {
 	 */
 	private function get_renewal_link() {
 		$license_key = (string) $this->get_license( 'license_key' );
-		$product_id  = (string) $this->get_product( 'id' );
+		$product_id  = (string) $this->get_license( 'product_id' );
 
 		if ( ! $license_key || ! $product_id ) {
 			return '';
@@ -1888,6 +1825,11 @@ class Manager {
 	 * Checks license status on scheduled time.
 	 */
 	public function check_license_status() {
+		// Nothing to do for expired license.
+		if ( 'expired' === $this->get_license( 'status' ) ) {
+			return;
+		}
+
 		$response = $this->validate_license( $this->get_validation_args( 'cron' ) );
 
 		if ( ! is_wp_error( $response ) ) {
