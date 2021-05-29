@@ -458,23 +458,20 @@ final class Manager {
 			return;
 		}
 
-		if ( is_object( $response ) && isset( $response->success ) && $response->success ) {
-			$this->purge_cache();
+		$this->purge_cache();
 
-			// phpcs:disable
-			$details = (array) $response->data;
+		$details = (array) $response->data;
 
-			if ( isset( $details['product_meta'] ) ) {
-				$data = (object) $details['product_meta'];
+		if ( isset( $details['product_meta'] ) ) {
+			$data = (object) $details['product_meta'];
 
-				$this->save_product_data_to_cache( $data );
+			$this->save_product_data_to_cache( $data );
 
-				// Clear product details before saving license details.
-				unset( $details['product_meta'] );
-			}
-
-			update_option( $this->license_option, maybe_serialize( (object) $details ), false );
+			// Clear product details before saving license details.
+			unset( $details['product_meta'] );
 		}
+
+		update_option( $this->license_option, maybe_serialize( (object) $details ), false );
 	}
 
 	/**
@@ -542,13 +539,22 @@ final class Manager {
 
 		$this->response = $this->process_license_form();
 
-		if ( is_wp_error( $this->response ) ) {
-			$this->has_license_expired( $this->response );
+		// There are errors on HTTP Client even after getting response.
+		// Lets first check if response is a valid response.
+		if (
+			is_object( $this->response ) &&
+			isset( $this->response->success ) &&
+			$this->response->success
+		) {
+			$this->parse_response( $this->response );
 
 			return;
 		}
 
-		$this->parse_response( $this->response );
+		// Then handle error, if any.
+		if ( is_wp_error( $this->response ) ) {
+			$this->has_license_expired( $this->response );
+		}
 	}
 
 	/**
@@ -675,7 +681,7 @@ final class Manager {
 		$response = $this->validate_license( $this->get_validation_args( $flag ) );
 
 		// Response has no state defined, data => invalid.
-		if ( is_wp_error( $response ) || ! isset( $response->data->state ) || ! isset( $response->data->product_meta ) ) {
+		if ( ! is_object( $response ) || ! isset( $response->data->state ) || ! isset( $response->data->product_meta ) ) {
 			return false;
 		}
 
@@ -1240,14 +1246,11 @@ final class Manager {
 
 		// Prepare final endpoint.
 		if ( ! $license ) {
-			// No license key is an error if not on a debug mode.
-			if ( ! $this->debug ) {
-				$this->client->add_error(
-					'license_form_invalid_request',
-					__( 'The License key was invalid or no license key was given.', 'tws-license-manager-client' ),
-					array( 'status' => 400 )
-				);
-			}
+			$this->client->add_error(
+				'license_form_invalid_request',
+				__( 'The License key was invalid or no license key was given.', 'tws-license-manager-client' ),
+				array( 'status' => 400 )
+			);
 		} else {
 			$base = $base . $this->license;
 		}
@@ -1832,7 +1835,7 @@ final class Manager {
 
 		$response = $this->validate_license( $this->get_validation_args( 'cron' ) );
 
-		if ( ! is_wp_error( $response ) ) {
+		if ( is_object( $response ) && isset( $response->success ) && $response->success ) {
 			$this->parse_response( $response );
 		}
 	}

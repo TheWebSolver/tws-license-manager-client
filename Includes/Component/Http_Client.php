@@ -110,6 +110,13 @@ class Http_Client {
 	private $headers = array();
 
 	/**
+	 * Any other errors.
+	 *
+	 * @var \WP_Error
+	 */
+	public $other_errors;
+
+	/**
 	 * Initializes HTTP client.
 	 *
 	 * @param string $url             Store URL.
@@ -118,8 +125,9 @@ class Http_Client {
 	 * @param array  $options         Client options.
 	 */
 	public function __construct( $url, $consumer_key, $consumer_secret, $options ) {
-		$this->error   = new \WP_Error();
-		$this->options = new Options( $options );
+		$this->error        = new \WP_Error();
+		$this->other_errors = new \WP_Error();
+		$this->options      = new Options( $options );
 
 		// Stop further execution if REST API namespace not defined.
 		if ( \is_wp_error( $this->options->namespace() ) ) {
@@ -457,11 +465,11 @@ class Http_Client {
 
 		// Check for cURL errors.
 		if ( 0 < $err_code ) {
-			$this->add_error(
+			$this->other_errors->add(
 				'cURL_error',
 				sprintf(
 					'%1$s. cURL Error Number: [%2$s]. cURL Error Message: [%3$s]',
-					__( 'An error occured when making activation/deactivation request', 'tws-license-manager-client' ),
+					__( 'An error occured when parsing response.', 'tws-license-manager-client' ),
 					$err_code,
 					\curl_error( $this->ch ) // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_error
 				),
