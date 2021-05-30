@@ -48,7 +48,7 @@ The above code will get data from the server when you are on WordPress admin and
 Now let's create the actual codes for the selling plugin with license form to enter the license key and other additional [validation fields set](#Validation).
 
 ```php
-use TheWebSolver\License_Manager\REST_API\Manager; // The client manager class.
+use TheWebSolver\License_Manager\API\Manager; // The client manager class.
 
 class Client_Plugin_License_Handler {
 	const SERVER_URL = 'test.tws'; // License server URL.
@@ -166,7 +166,7 @@ The above code simply shows a response message after the **Activate/Deactivate**
 
 ### Useful method/properties
 
-- `Client_Plugin_License_Handler::init()->manager->get_license()` - Get the license data. You can pass additional parameter to get the data you want. Some of the useful ones are: `status`, `valid_for`, `expires_at`, and `total_count`. For full list, see the method. `{@filesource - tws-license-manager-client/REST_API/Manager.php}`
+- `Client_Plugin_License_Handler::init()->manager->get_license()` - Get the license data. You can pass additional parameter to get the data you want. Some of the useful ones are: `status`, `valid_for`, `expires_at`, and `total_count`. For full list, see the method. `{@filesource - tws-license-manager-client/Includes/API/Manager.php}`
 - `Client_Plugin_License_Handler::init()->manager->option` - The Options API key. Useful to get the actual response data saved to database.
 	- Geting value: `get_option( Client_Plugin_License_Handler::init()->manager->option )`
 
@@ -177,7 +177,7 @@ All of the above codes are compiled as complete code below. It is a fully workin
 ```php
 <?php
 
-use TheWebSolver\License_Manager\REST_API\Manager;
+use TheWebSolver\License_Manager\API\Manager;
 
 /**
  * The Web Solver License Manager Client Plugin class.
