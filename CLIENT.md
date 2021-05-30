@@ -25,6 +25,7 @@ function test_client_manager() {
 		'ck_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // replace with consumer key.
 		'cs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // replace with consumer secret.
 	)
+	->hash_with( 'server-secret-key' );
 	// ->set_key_or_id( 'THE-LICENSE-KEY-HERE' ) // uncomment this to get the given license key data.
 	// ->set_key_or_id( '1' ) // uncomment this to get the first generator data.
 	->connect_with( esc_url( 'serverurl.com' ), array( 'verify_ssl' => 0 ) ) // replace server url.
@@ -115,6 +116,7 @@ public function start() {
 		'ck_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 		'cs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 	)
+	->hash_with( 'server-secret-key' )
 	->connect_with(
 		esc_url( self::SERVER_URL ),
 		array(
@@ -140,6 +142,7 @@ Lets breakdown the above code in steps:
 #### Validation Keys
 
 - Second, `Client_Plugin_License_Handler::$manager::authenticate_with()` is self explanatory. Set the consumer key and consumer secret that has been generated on the server for the user with the capabilities to handle the server. Usually user with `manage_options` capability.
+- Also, use `Client_Plugin_License_Handler::$manager::hash_with()` method to set the product secret key for authorization.
 
 #### Connection Details
 
@@ -265,6 +268,7 @@ class Client_Plugin {
 			'ck_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 			'cs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
 		)
+		->hash_with( 'server-secret-key' )
 		->connect_with(
 			esc_url( self::SERVER_URL ),
 			array(

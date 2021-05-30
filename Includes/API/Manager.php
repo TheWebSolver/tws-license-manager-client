@@ -45,6 +45,13 @@ final class Manager {
 	private $consumer_secret = '';
 
 	/**
+	 * Product Secret Key used by server.
+	 *
+	 * @var string
+	 */
+	private $hash = '';
+
+	/**
 	 * Data to be validated for API request.
 	 *
 	 * @var array
@@ -310,6 +317,21 @@ final class Manager {
 	}
 
 	/**
+	 * Sets the secret key for validating the product.
+	 *
+	 * The secret key set on the server.
+	 *
+	 * @param string $key The secret key.
+	 *
+	 * @return Manager
+	 */
+	public function hash_with( string $key ): Manager {
+		$this->hash = $key;
+
+		return $this;
+	}
+
+	/**
 	 * Sets API URL parameters.
 	 *
 	 * Any additional parameters to pass along with request.
@@ -519,7 +541,7 @@ final class Manager {
 		$this->step = isset( $_GET['step'] ) && 'expired' !== (string) $this->get_license( 'status' ) ? sanitize_key( wp_unslash( $_GET['step'] ) ) : '';
 
 		// Bail if license form not submitted yet.
-		if ( ! isset( $_POST['validate_license'] ) || 'validate_license' !== $_POST['validate_license'] ) {
+		if ( ! isset( $_POST['validate_license'] ) || $this->hash !== $_POST['validate_license'] ) {
 			return;
 		}
 		// phpcs:enable
@@ -1154,7 +1176,7 @@ final class Manager {
 
 		$headers = array(
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
-			'Authorization' => 'TWS ' . base64_encode( "{$license->key}:{$license->purchased_on}" ),
+			'Authorization' => 'TWS ' . base64_encode( "{$license->key}/{$license->purchased_on}:{$this->hash}" ),
 			'Referer'       => get_bloginfo( 'url' ),
 		);
 
@@ -1505,7 +1527,7 @@ final class Manager {
 						 * {@see @method Manager::start()}
 						 */
 						?>
-						<input type="hidden" name="validate_license" value="validate_license">
+						<input type="hidden" name="validate_license" value="<?php echo esc_attr( $this->hash ); ?>">
 						<input type="hidden" name="tws_license_form" value="<?php echo esc_attr( $state ); ?>">
 					</fieldset>
 				</form>
