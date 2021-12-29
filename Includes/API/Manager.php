@@ -1290,11 +1290,7 @@ final class Manager {
 	 * Generates license page form by step name.
 	 */
 	public function generate_form() {
-		if ( empty( $this->step ) ) {
-			call_user_func( array( $this, 'show_license_form' ) );
-		} elseif ( 'deactivate' === $this->step ) {
-			call_user_func( array( $this, 'show_license_form' ), false );
-		}
+		$this->show_license_form( 'deactivate' !== $this->step );
 	}
 
 	/**
@@ -1302,7 +1298,7 @@ final class Manager {
 	 *
 	 * @param bool $to_activate License form to be shown on activation or deactivation page.
 	 */
-	private function show_license_form( $to_activate = true ) {
+	private function show_license_form( bool $to_activate = true ) {
 		// Form states.
 		$query      = array();
 		$deactivate = false;
@@ -1331,16 +1327,14 @@ final class Manager {
 		 * Modify the license form header.
 		 *
 		 * @param string[] $content The header contents. `logo` and `title`.
-		 * @param string   $prefix  The current client prefix (directory name).
-		 * @var   string[] The filtered  content.
+		 * @var   string[]          The filtered  content.
 		 */
 		$header = apply_filters(
-			'hzfex_license_manager_client_license_form_header',
+			$this->dirname . '_license_form_header',
 			array(
 				'logo'  => $logo,
 				'title' => $this->get_product_data( 'name' ),
-			),
-			$this->dirname
+			)
 		);
 
 		// Expired license Alert!!!
@@ -1533,24 +1527,27 @@ final class Manager {
 				</form>
 				<?php if ( 'expired' === $status ) : ?>
 					<script type="text/javascript">
-						var btn = jQuery('#enableForm');
-						var formWrapper    = jQuery('.hz_license_form_content');
-						var activateFields = jQuery('#hz_activate_plugin');
-						var activateAction = jQuery('.hz_license_button');
-						var isEnabled = () => {
-							if( jQuery(btn).is(':checked')) {
-								jQuery(activateFields).removeProp('disabled');
-								jQuery(activateAction).removeProp('disabled');
-								jQuery(formWrapper).removeClass('disabled');
-							} else {
-								jQuery(activateFields).attr('disabled', 'disabled');
-								jQuery(activateAction).attr('disabled', 'disabled');
-								jQuery(formWrapper).addClass('disabled');
-							}
-						};
+						(function($){
+							var btn = $('#enableForm'),
+								formWrapper    = $('.hz_license_form_content'),
+								activateFields = $('#hz_activate_plugin'),
+								activateAction = $('.hz_license_button');
 
-						isEnabled();
-						jQuery('#enableForm').on('click', isEnabled);
+							function isEnabled() {
+								if(btn.is(':checked')) {
+									activateFields.removeProp('disabled');
+									activateAction.removeProp('disabled');
+									formWrapper.removeClass('disabled');
+								} else {
+									activateFields.attr('disabled', 'disabled');
+									activateAction.attr('disabled', 'disabled');
+									formWrapper.addClass('disabled');
+								}
+							};
+
+							isEnabled();
+							btn.on('click', isEnabled);
+						})(jQuery);
 					</script>
 				<?php endif; ?>
 			</div>
@@ -1560,21 +1557,50 @@ final class Manager {
 	}
 
 	/**
-	 * Validates the form data to make REST API request.
+	 * Gets posted value after sanitization by the field name.
 	 *
-	 * NOTE: Sanitization is a must for form data. Some are applied, others not.
+	 * @param string[] $data The posted data.
+	 * @param string   $key  The index/key for the posted data.
+	 *
+	 * @return string The sanitized value.
+	 */
+	private function clean( array $data, string $key ): string {
+		switch ( $key ) {
+			case 'email':
+				$value = sanitize_email( $data[ $key ] );
+				break;
+			case 'slug':
+			case 'tws_license_form':
+				$value = sanitize_key( $data[ $key ] );
+				break;
+			default:
+				$value = sanitize_text_field( $data[ $key ] );
+		}
+
+		/**
+		 * WPHOOK: Filter -> sanitized posted value of the license form.
+		 *
+		 * @param string   $value The cleaned value.
+		 * @param string[] $data  The posted data.
+		 * @param string   $key   The index/key for the posted data.
+		 */
+		return (string) apply_filters( $this->dirname . '_sanitized_posted_value', $value, $data, $key );
+	}
+
+	/**
+	 * Validates the form data to make REST API request.
 	 *
 	 * @return bool True if form has all fields value, false otherwise.
 	 *
 	 * @todo Make sanitization as required.
 	 */
-	public function has_valid_form_data() {
+	public function has_valid_form_data(): bool {
 		// Bail if debug mode is enabled.
 		if ( $this->debug ) {
 			return true;
 		}
 
-		$data      = wp_unslash( $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$data      = (array) wp_unslash( $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$with_data = array( 1 );
 
 		// Internal check for validation field. If not found, request => invalid.
@@ -1585,22 +1611,28 @@ final class Manager {
 			return false;
 		}
 
-		$this->form_state              = sanitize_key( $data['tws_license_form'] );
-		$this->validated['form_state'] = $this->form_state;
-		$this->validated['authorize']  = $data['validate_license'];
+		// Check for user submitted form field data. If not found, request => invalid.
+		if ( ! isset( $data[ $this->dirname ] ) || empty( $data[ $this->dirname ] ) ) {
+			return false;
+		}
 
-		if ( isset( $data[ $this->dirname ]['license_key'] ) ) {
-			$this->license = sanitize_text_field( $data[ $this->dirname ]['license_key'] );
+		$_data = (array) $data[ $this->dirname ];
+
+		$this->form_state              = $this->clean( $data, 'tws_license_form' );
+		$this->validated['form_state'] = $this->form_state;
+		$this->validated['authorize']  = $this->clean( $data, 'validate_license' );
+
+		if ( isset( $_data['license_key'] ) ) {
+			$this->license = $this->clean( $_data, 'license_key' );
 
 			// Catch error for license key with no data for client side validation.
 			if ( isset( $this->to_validate['license_key'] ) ) {
-				$license_key   = $data[ $this->dirname ]['license_key'];
-				$license_error = $this->to_validate['license_key'];
+				$license_error = (string) $this->to_validate['license_key'];
 
 				// Clear license key so it will not be used for validation.
 				unset( $this->to_validate['license_key'] );
 
-				if ( empty( $license_key ) ) {
+				if ( empty( $this->license ) ) {
 					$this->errors['license_key'] = $license_error;
 				}
 			}
@@ -1608,39 +1640,19 @@ final class Manager {
 
 		// Iterate over data to be validated and prepare validated and error data.
 		foreach ( $this->to_validate as $key => $error ) {
-			if ( isset( $data[ $this->dirname ][ $key ] ) && 'email' === $data[ $this->dirname ][ $key ] ) {
-				$this->validated['email'] = sanitize_email( $data[ $this->dirname ][ $key ] );
-
-				// Catch error for email with no data for client side validation.
-				if ( empty( $data[ $this->dirname ]['email'] ) ) {
-					$this->errors['email'] = $error;
-					$with_data[]           = 0;
-				}
+			// Only sanitize fields that needs validation.
+			if ( ! array_key_exists( $key, $_data ) ) {
+				continue;
 			}
 
-			if ( isset( $data[ $this->dirname ][ $key ] ) && 'order_id' === $data[ $this->dirname ][ $key ] ) {
-				$this->validated['order_id'] = intval( $data[ $this->dirname ][ $key ] );
+			$this->validated[ $key ] = $this->clean( $_data, $key );
 
-				// Catch error for order ID with no data for client side validation.
-				if ( empty( $data[ $this->dirname ]['order_id'] ) ) {
-					$this->errors['order_id'] = $error;
-					$with_data[]              = 0;
-				}
-			}
-
-			if ( isset( $data[ $this->dirname ][ $key ] ) && 'slug' === $data[ $this->dirname ][ $key ] ) {
-				$this->validated['slug'] = sanitize_title( $data[ $this->dirname ][ $key ] );
-			}
-
-			// Any other validation data.
-			if ( isset( $data[ $this->dirname ][ $key ] ) ) {
-				$this->validated[ $key ] = sanitize_text_field( $data[ $this->dirname ][ $key ] );
-
-				// Catch errors for other inputs with no data for client side validation.
-				if ( empty( $data[ $this->dirname ][ $key ] ) ) {
-					$this->errors[ $key ] = $error;
-					$with_data[]          = 0;
-				}
+			// Catch errors for validation fields if field is empty.
+			// Sometimes validated field (eg. email) is an empty string. Check that too.
+			// NOTE: slug can only be verified on server side. Ignore it here.
+			if ( 'slug' !== $key && ( empty( $_data[ $key ] ) || empty( $this->validated[ $key ] ) ) ) {
+				$this->errors[ $key ] = $error;
+				$with_data[]          = 0;
 			}
 		}
 
@@ -1654,7 +1666,7 @@ final class Manager {
 	 *
 	 * @return bool True if all input field has data, false otherwise.
 	 */
-	public function can_make_request( $with_data ) {
+	public function can_make_request( array $with_data ): bool {
 		return in_array( 0, $with_data, true ) ? false : true;
 	}
 
@@ -1679,7 +1691,7 @@ final class Manager {
 		 */
 	public function loaded() {
 		/**
-		 * WPHOOK: Fires on license form submenu page.
+		 * WPHOOK: Action -> Fires on license form submenu page.
 		 *
 		 * @param Manager $client Current instance of license manager client.
 		 */
@@ -1690,7 +1702,13 @@ final class Manager {
 	 * Enqueues necessary styles and scripts.
 	 */
 	public function enqueue_scripts() {
-		wp_enqueue_style( $this->dirname . '-style', plugin_dir_url( $this->root() ) . '/Assets/style.css', array(), self::VERSION );
+		// Bail if not the license page.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! isset( $_GET['page'] ) || $this->page_slug !== $_GET['page'] ) {
+			return;
+		}
+
+		wp_enqueue_style( $this->dirname . '-style', plugin_dir_url( $this->root() ) . 'Assets/style.css', array(), self::VERSION );
 	}
 
 	/**
@@ -1700,7 +1718,7 @@ final class Manager {
 	 *
 	 * @return string
 	 */
-	private function parse_url( $domain ) {
+	private function parse_url( string $domain ): string {
 		$domain = wp_parse_url( $domain, PHP_URL_HOST );
 		$domain = str_replace( 'www.', '', $domain );
 
@@ -1715,7 +1733,7 @@ final class Manager {
 	 *
 	 * @return \stdClass
 	 */
-	public function post( $endpoint, $data ) {
+	public function post( string $endpoint, array $data ) {
 		return $this->client->request( $endpoint, 'POST', $data );
 	}
 
@@ -1727,7 +1745,7 @@ final class Manager {
 	 *
 	 * @return \stdClass
 	 */
-	public function put( $endpoint, $data ) {
+	public function put( string $endpoint, array $data ) {
 		return $this->client->request( $endpoint, 'PUT', $data );
 	}
 
@@ -1739,7 +1757,7 @@ final class Manager {
 	 *
 	 * @return \stdClass|\WP_Error
 	 */
-	public function get( $endpoint, $parameters = array() ) {
+	public function get( string $endpoint, array $parameters = array() ) {
 		return $this->client->request( $endpoint, 'GET', array(), $parameters );
 	}
 
@@ -1751,7 +1769,7 @@ final class Manager {
 	 *
 	 * @return \stdClass
 	 */
-	public function delete( $endpoint, $parameters = array() ) {
+	public function delete( string $endpoint, array $parameters = array() ) {
 		return $this->client->request( $endpoint, 'DELETE', array(), $parameters );
 	}
 
@@ -1762,7 +1780,7 @@ final class Manager {
 	 *
 	 * @return \stdClass
 	 */
-	public function options( $endpoint ) {
+	public function options( string $endpoint ) {
 		return $this->client->request( $endpoint, 'OPTIONS', array(), array() );
 	}
 
@@ -1789,11 +1807,10 @@ final class Manager {
 		/**
 		 * WPHOOK: Filter -> Admin license page body class.
 		 *
-		 * @param bool   $apply Whether to apply color scheme by license status or not.
-		 * @param string $page  The current license page.
+		 * @param bool $apply Whether to apply color scheme by license status or not.
 		 * @var   bool
 		 */
-		$apply = apply_filters( 'hzfex_license_manager_license_page_body_class', true, $this->page_slug );
+		$apply = apply_filters( $this->dirname . '_license_page_body_class', true );
 
 		if ( $page === $this->page_slug && $apply ) {
 			$class .= 'license-' . $status ? " {$status}" : ' not-activated';
@@ -1814,7 +1831,7 @@ final class Manager {
 	 *
 	 * @return string Remote server checkout link with licensed product in cart.
 	 */
-	private function get_renewal_link() {
+	private function get_renewal_link(): string {
 		$license_key = (string) $this->get_license( 'license_key' );
 		$product_id  = (string) $this->get_license( 'product_id' );
 
@@ -1841,7 +1858,7 @@ final class Manager {
 		 * @param string $product_id  The current product ID.
 		 * @var   string
 		 */
-		$link = apply_filters( 'hzfex_license_manager_client_renew_license_link', $query, $license_key, $product_id );
+		$link = apply_filters( $this->dirname . '_renew_license_link', $query, $license_key, $product_id );
 
 		return $link;
 	}
