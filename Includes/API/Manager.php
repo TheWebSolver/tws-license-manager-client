@@ -899,6 +899,7 @@ final class Manager {
 		return array(
 			'form_state' => 'validate',
 			'flag'       => $flag,
+			'slug'       => $this->product_slug,
 		);
 	}
 
@@ -1176,7 +1177,7 @@ final class Manager {
 
 		$headers = array(
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
-			'Authorization' => 'TWS ' . base64_encode( "{$license->key}/{$license->purchased_on}:{$this->hash}" ),
+			'Authorization' => 'TWS ' . base64_encode( "{$this->key}/{$license->purchased_on}:{$this->hash}" ),
 			'Referer'       => get_bloginfo( 'url' ),
 		);
 
@@ -1220,7 +1221,9 @@ final class Manager {
 			return;
 		}
 
-		if ( $this->key === $this->get_license( 'key' ) ) {
+		$meta_key = $this->parse_url( get_bloginfo( 'url' ) ) . '-' . $this->product_slug;
+
+		if ( $meta_key === $this->get_license( 'key' ) ) {
 			// No further processing if license is already active for this site.
 			if ( 'deactivate' !== $this->step && 'active' === $this->get_license( 'status' ) ) {
 				$this->client->add_error(
