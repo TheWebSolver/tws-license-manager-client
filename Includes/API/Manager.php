@@ -28,7 +28,7 @@ final class Manager {
 	/**
 	 * The Web Solver License Manager Client Manager version.
 	 */
-	const VERSION = '2.0.0';
+	const VERSION = '2.2';
 
 	/**
 	 * Consumer Key.
@@ -607,17 +607,51 @@ final class Manager {
 	}
 
 	/**
-	 * Expires current license.
+	 * Syncs license status with the server.
 	 *
-	 * @param string $date The expiry date to update.
+	 * @param string $status The license status.
+	 * @param string $date   The license expiry date.
 	 *
 	 * @return bool True on success, false otherwise.
+	 *
+	 * @since 2.2
 	 */
-	private function make_license_expire( string $date = '' ): bool {
-		$licence = (array) maybe_unserialize( get_option( $this->license_option, array() ) );
+	private function make_license_valid( string $status, string $date ): bool {
+		$license = (array) maybe_unserialize( get_option( $this->license_option, array() ) );
 
 		// Check license is valid.
-		if ( ! isset( $licence['status'] ) ) {
+		if ( ! isset( $license['status'] ) ) {
+			return false;
+		}
+
+		if ( $date ) {
+			$license['expires_at'] = $date;
+		}
+
+		$license['status'] = $status;
+		$update            = (object) $license;
+
+		update_option( $this->license_option, maybe_serialize( $update ), false );
+
+		return true;
+	}
+
+	/**
+	 * Expires current license.
+	 *
+	 * @param string $date  The expiry date to update.
+	 * @param int    $count The current active count.
+	 *
+	 * @return bool True on success, false otherwise.
+	 *
+	 * @since 2.2 Added $count arg to update the active count.
+	 * @since 2.2 Rectify $license var name.
+	 */
+	private function make_license_expire( string $date = '', $count = null ): bool {
+		$license = (array) maybe_unserialize( get_option( $this->license_option, array() ) );
+
+		// Check license is valid.
+		if ( ! isset( $license['status'] ) ) {
 			return false;
 		}
 
@@ -627,12 +661,16 @@ final class Manager {
 
 			// Given date is a valid date (format) used on server, update expiry date too.
 			if ( $is_valid_date ) {
-				$licence['expires_at'] = $date;
+				$license['expires_at'] = $date;
 			}
 		}
 
-		$licence['status'] = 'expired';
-		$update            = (object) $licence;
+		if ( is_int( $count ) ) {
+			$license['active_count'] = $count;
+		}
+
+		$license['status'] = 'expired';
+		$update            = (object) $license;
 
 		update_option( $this->license_option, maybe_serialize( $update ), false );
 
@@ -677,6 +715,9 @@ final class Manager {
 	 * @param string $flag The validation flag.
 	 *
 	 * @return \stdClass|false False if bad response.
+	 *
+	 * @since 2.2 Update active count once license gets expired.
+	 * @since 2.2 Update license status after license renewed.
 	 */
 	private function fetch_product_data_from_server( string $flag ) {
 		/**
@@ -688,9 +729,6 @@ final class Manager {
 		 * (in this case, that must be the end-user).
 		 *
 		 * If it is tempered, server will never send a valid response back.
-		 *
-		 * Response code:
-		 * * `200` Flag not verified.
 		 *
 		 * Response error codes:
 		 * * `400` License can not be verified.
@@ -707,12 +745,21 @@ final class Manager {
 			return false;
 		}
 
-		$product_data = $response->data->product_meta;
+		$current_status  = (string) $this->get_license( 'status' );
+		$response_status = (string) $response->data->state;
+		$expiry_date     = (string) $response->data->expiresAt;
+		$active_count    = isset( $response->data->count ) ? (int) $response->data->count : null;
 
-		// License expired on server, save that change in client too.
-		if ( 'expired' !== $this->get_license( 'status' ) && 'expired' === $response->data->state ) {
-			$this->make_license_expire( $response->data->expiresAt );
+		// Sync license status between client and server.
+		if ( 'expired' !== $current_status && 'expired' === $response_status ) {
+			if ( ! $this->make_license_expire( $expiry_date, $active_count ) ) {
+				return false;
+			}
+		} elseif ( 'expired' === $current_status && 'expired' !== $response_status ) {
+			$this->make_license_valid( $response_status, $expiry_date );
 		}
+
+		$product_data = $response->data->product_meta;
 
 		/**
 		 * The file extensions for icons (except "svg") can be jpg, png, gif.
@@ -805,13 +852,15 @@ final class Manager {
 	 * @param object $meta  The new product metadata.
 	 *
 	 * @return mixed
+	 *
+	 * @since 2.2 Check if metadata is set.
 	 */
 	private function maybe_get_update( $id, $value, $meta ) {
 		if ( 'theme' === $this->type ) {
 			// Prepare theme data as update value response. TODO: add later.
 			if ( ! isset( $value->response[ $id ] ) ) {
 				$value->response[ $id ] = array(
-					'new_version' => $meta->version,
+					'new_version' => isset( $meta->version ) ? $meta->version : '',
 				);
 
 				return $value;
@@ -823,9 +872,9 @@ final class Manager {
 		$plugin->slug        = $this->dirname;
 		$plugin->plugin      = $id;
 		$plugin->url         = esc_url( "{$this->server_url}/{$this->product_slug}" );
-		$plugin->new_version = $meta->version;
-		$plugin->icons       = $meta->logo;
-		$plugin->banners     = $meta->cover;
+		$plugin->new_version = isset( $meta->version ) ? $meta->version : '';
+		$plugin->icons       = isset( $meta->logo ) ? $meta->logo : array();
+		$plugin->banners     = isset( $meta->cover ) ? $meta->cover : array();
 
 		if ( isset( $meta->wp_tested ) ) {
 			$plugin->tested = $meta->wp_tested;
@@ -1161,6 +1210,12 @@ final class Manager {
 	/**
 	 * Validates Existing License on server.
 	 *
+	 * Using this will update the license meta on server.
+	 * Using it manually is not recommended as
+	 * meta will only be updated on server and client license option won't update.
+	 *
+	 * Use check instead. {@see `Manager::check_license_status()`}.
+	 *
 	 * @param array $parameters The request parameters.
 	 *
 	 * @return \stdClass|\WP_Error
@@ -1209,6 +1264,8 @@ final class Manager {
 
 	/**
 	 * Prepare request data to pass for getting response.
+	 *
+	 * @since 2.2 Added validation error if product slug not given.
 	 */
 	private function prepare_request() {
 		// Prevent sending request if is in debug mode.
@@ -1241,6 +1298,19 @@ final class Manager {
 					'license_form_invalid_request',
 					__( 'Oops! The license for this site is not active yet. Activate your license first.', 'tws-license-manager-client' ),
 					array( 'status' => 400 )
+				);
+
+				return;
+			}
+
+			// No further processing if product slug is not provided for validation.
+			if ( ! isset( $_POST[$this->dirname]['slug'] ) || empty( $_POST[$this->dirname]['slug'] ) ) {
+				$this->client->add_error(
+					'product_slug_not_found',
+					sprintf(
+						__( 'Oops! Product slug is required to %s license.', 'tws-license-manager-client' ),
+						'deactivate' === $this->step ? 'deactivate' : 'activate'
+					)
 				);
 
 				return;
@@ -1594,8 +1664,6 @@ final class Manager {
 	 * Validates the form data to make REST API request.
 	 *
 	 * @return bool True if form has all fields value, false otherwise.
-	 *
-	 * @todo Make sanitization as required.
 	 */
 	public function has_valid_form_data(): bool {
 		// Bail if debug mode is enabled.
@@ -1868,6 +1936,8 @@ final class Manager {
 
 	/**
 	 * Checks license status on scheduled time.
+	 *
+	 * Updates license option if response is valid.
 	 */
 	public function check_license_status() {
 		// Nothing to do for expired license.
